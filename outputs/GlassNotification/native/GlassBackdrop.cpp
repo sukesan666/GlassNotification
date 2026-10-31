@@ -26,6 +26,7 @@ struct Context {
  Compositor compositor{nullptr};
  Desktop::DesktopWindowTarget target{nullptr};
  DesktopAcrylicController acrylic{nullptr};
+ SystemBackdropConfiguration configuration{nullptr};
  int strength{1};
  Windows::UI::Color tintColor{255,245,247,250};
  CompositionGraphicsDevice graphics{nullptr};
@@ -57,6 +58,7 @@ static float AcrylicLuminosityOpacity(int strength) noexcept {return strength==0
 static void ApplyAcrylicAppearance(Context& ctx) {
  // Explicit values keep reconstruction, mode switches and setter order equal.
  // Luminosity=1 previously hid the backdrop, especially with white/black tint.
+ if(ctx.configuration)ctx.configuration.IsInputActive(true);
  ctx.acrylic.TintColor(ctx.tintColor);
  ctx.acrylic.FallbackColor(ctx.tintColor);
  ctx.acrylic.TintOpacity(AcrylicTintOpacity(ctx.strength));
@@ -90,7 +92,12 @@ static HRESULT CreateCompositionHost(HWND hwnd,int strength,bool useAcrylic,void
   if(strength<0||strength>2)return E_INVALIDARG;
   if(useAcrylic){
    ctx->acrylic=DesktopAcrylicController();
+   ctx->configuration=SystemBackdropConfiguration();
+   ctx->configuration.IsInputActive(true);
+   ctx->configuration.IsHighContrast(false);
+   ctx->configuration.Theme(SystemBackdropTheme::Default);
    if(!ctx->acrylic.SetTarget(Microsoft::UI::WindowId{reinterpret_cast<uint64_t>(hwnd)},ctx->target))return E_FAIL;
+   ctx->acrylic.SetSystemBackdropConfiguration(ctx->configuration);
    ctx->strength=strength;ApplyAcrylicAppearance(*ctx);
   }
   *result=ctx.release();return S_OK;

@@ -3,6 +3,8 @@
   <assemblyIdentity version="1.0.0.0" name="GlassNotification"/>
   <file name="wuceffectsi.dll">
     <activatableClass xmlns="urn:schemas-microsoft-com:winrt.v1" name="Microsoft.UI.Composition.SystemBackdrops.DesktopAcrylicController" threadingModel="both"/>
+    <activatableClass xmlns="urn:schemas-microsoft-com:winrt.v1" name="Microsoft.UI.Composition.SystemBackdrops.MicaController" threadingModel="both"/>
+    <activatableClass xmlns="urn:schemas-microsoft-com:winrt.v1" name="Microsoft.UI.Composition.SystemBackdrops.SystemBackdropConfiguration" threadingModel="both"/>
   </file>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3"><security><requestedPrivileges><requestedExecutionLevel level="asInvoker" uiAccess="false"/></requestedPrivileges></security></trustInfo>
   <application xmlns="urn:schemas-microsoft-com:asm.v3"><windowsSettings>

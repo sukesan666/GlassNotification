@@ -28,7 +28,7 @@ public static partial class Tests {
   Check(imageSize!=null,"notification image size can be changed from the basic settings slider");
   var durationRow=(FrameworkElement)((Slider)window.FindName("DisplaySeconds")).Parent;
   var imageSizeRow=(FrameworkElement)imageSize.Parent;
-  Check(ReferenceEquals(imageSizeRow.Parent,settingsPanel)&&settingsPanel.Children.IndexOf(imageSizeRow)==settingsPanel.Children.IndexOf(durationRow)+1,"image size slider is immediately below display duration in basic settings");
+  Check(ReferenceEquals(imageSizeRow.Parent,durationRow.Parent)&&((Panel)durationRow.Parent).Children.IndexOf(imageSizeRow)==((Panel)durationRow.Parent).Children.IndexOf(durationRow)+1,"image size slider is immediately below display duration in basic settings");
   var imagePosition=window.FindName("ImagePosition") as ComboBox;
   Check(imagePosition!=null,"notification image side can be chosen from basic settings");
   var imagePositionRow=(FrameworkElement)imagePosition.Parent;

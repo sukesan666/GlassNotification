@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Globalization;
 using System.Windows;
@@ -204,7 +204,7 @@ public sealed class NotificationWindow : Window,INotificationView,INotificationC
  }
  public void ShowCard() {
   bool wasVisible=IsVisible;StopAnimation();surface.Opacity=1;
-  if(!wasVisible) {new WindowInteropHelper(this).EnsureHandle();NativeWindow.Place(handle,SlidePosition(pixels,AnimationScreen(),IsLeftCorner(),0,true,16*monitor.DpiScale));Show();NativeWindow.Alpha(handle,1);ApplyBackdrop();backdrop.Refresh();RefreshSurfaceContent();Animate(true,null);} else {Place();NativeWindow.Alpha(handle,1);ApplyBackdrop();RefreshSurfaceContent();backdrop.SetContentOpacity(1);}
+  if(!wasVisible) {new WindowInteropHelper(this).EnsureHandle();NativeWindow.Place(handle,SlidePosition(pixels,AnimationScreen(),IsLeftCorner(),0,true,16*monitor.DpiScale));Show();NativeWindow.Alpha(handle,1);ApplyBackdrop();backdrop.Refresh();RefreshSurfaceContent();Animate(true,null);} else {Place();NativeWindow.Alpha(handle,1);ApplyBackdrop();backdrop.Refresh();RefreshSurfaceContent();backdrop.SetContentOpacity(1);}
  }
  public void HideCard() {SetHoverState(false);StopAnimation();surface.Opacity=1;if(handle!=IntPtr.Zero)NativeWindow.Alpha(handle,1);Hide();}
  public void FadeOut(Action completed) {StopAnimation();Animate(false,completed);}
