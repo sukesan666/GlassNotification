@@ -1,0 +1,24 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+ xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+ xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+ xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+ xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+ IgnorableNamespaces="uap uap3 uap10 rescap">
+ <Identity Name="GlassNotification.OSLink" Publisher="CN=GlassNotification" Version="1.7.0.11" ProcessorArchitecture="x64" />
+ <Properties><DisplayName>Glass Notification（OS連動）</DisplayName><PublisherDisplayName>GlassNotification</PublisherDisplayName><Logo>assets\StoreLogo.png</Logo><uap10:AllowExternalContent>true</uap10:AllowExternalContent></Properties>
+ <Resources><Resource Language="ja-jp" /></Resources>
+ <Dependencies><TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.22621.0" MaxVersionTested="10.0.26100.0" /></Dependencies>
+ <Capabilities><rescap:Capability Name="runFullTrust" /><uap3:Capability Name="userNotificationListener" /></Capabilities>
+ <Applications><Application Id="App" Executable="GlassNotification.Linked.exe" uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
+ <uap:VisualElements DisplayName="Glass Notification（OS連動）" Description="Windowsの通知をGlassカードで表示します" BackgroundColor="transparent" Square150x150Logo="assets\Square150x150Logo.png" Square44x44Logo="assets\Square44x44Logo.png" />
+ </Application></Applications>
+ <Extensions>
+  <Extension Category="windows.activatableClass.inProcessServer">
+   <InProcessServer>
+    <Path>wuceffectsi.dll</Path>
+    <ActivatableClass ActivatableClassId="Microsoft.UI.Composition.SystemBackdrops.DesktopAcrylicController" ThreadingModel="both" />
+   </InProcessServer>
+  </Extension>
+ </Extensions>
+</Package>

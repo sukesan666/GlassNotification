@@ -1,0 +1,15 @@
+* text=auto
+.gitattributes text eol=lf
+.gitignore text eol=lf
+*.md text eol=lf
+*.cs text eol=crlf
+*.cpp text eol=crlf
+*.ps1 text eol=crlf
+*.xml text eol=crlf
+*.msix binary
+*.cer binary
+*.ico binary
+*.png binary
+*.wav binary
+# Preserve upstream license text exactly; exclude its original whitespace from lint.
+outputs/GlassNotification/licenses/* -whitespace

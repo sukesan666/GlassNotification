@@ -1,0 +1,31 @@
+# Local build caches, logs, diagnostics and signing identity
+/work/
+**/bin/
+**/obj/
+**/.vs/
+*.log
+*.jsonl
+*.dmp
+*.pfx
+*.p12
+*.pem
+*.key
+*.dpapi
+**/settings.json
+**/notification-filters.json
+**/notification-history.json
+**/startup-state.json
+
+# Generated application/runtime files; release payloads live in dist/
+/outputs/GlassNotification/*.exe
+/outputs/GlassNotification/*.exe.config
+/outputs/GlassNotification/*.dll
+/outputs/GlassNotification/*.pri
+/outputs/GlassNotification/*.msix
+/outputs/GlassNotification/*.cer
+/outputs/GlassNotification/preview-*.png
+/outputs/GlassNotification/reports/
+/outputs/GlassNotification/scratch/
+/outputs/GlassNotification/evidence-*/
+Thumbs.db
+.DS_Store
