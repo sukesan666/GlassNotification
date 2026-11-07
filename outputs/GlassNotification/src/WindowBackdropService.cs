@@ -77,7 +77,9 @@ public sealed class WindowBackdropService : IDisposable {
  }
  public void SetStrength(BackdropStrength strength){
   if(disposed)return;
-  Strength=Enum.IsDefined(typeof(BackdropStrength),strength)?strength:BackdropStrength.Standard;
+  strength=Enum.IsDefined(typeof(BackdropStrength),strength)?strength:BackdropStrength.Standard;
+  if(Strength==strength)return;
+  Strength=strength;
   if(handle!=IntPtr.Zero)Refresh();
  }
  public void SetCardColor(string value){

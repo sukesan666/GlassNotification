@@ -34,8 +34,17 @@ public sealed class OsNotificationPreferences {
   catch(Exception e){journal=null;if(e is IOException||e is UnauthorizedAccessException)throw;throw new InvalidDataException("通知設定の復元データを読み込めません。上書きせず停止しました。",e);}
  }
  void Save(){string directory=Path.GetDirectoryName(Path.GetFullPath(path));Directory.CreateDirectory(directory);string temporary=path+"."+Guid.NewGuid().ToString("N")+".tmp";
-  try{using(var stream=new FileStream(temporary,FileMode.CreateNew,FileAccess.Write,FileShare.None,4096,FileOptions.WriteThrough)){var bytes=System.Text.Encoding.UTF8.GetBytes(new JavaScriptSerializer().Serialize(journal));stream.Write(bytes,0,bytes.Length);stream.Flush(true);}if(File.Exists(path))File.Replace(temporary,path,null);else File.Move(temporary,path);}
-  finally{if(File.Exists(temporary))File.Delete(temporary);}
+  try{
+   using(var stream=new FileStream(temporary,FileMode.CreateNew,FileAccess.Write,FileShare.None,4096,FileOptions.WriteThrough)){
+    var bytes=System.Text.Encoding.UTF8.GetBytes(new JavaScriptSerializer().Serialize(journal));
+    stream.Write(bytes,0,bytes.Length);stream.Flush(true);
+   }
+   for(int retry=0;;retry++){
+    try{if(File.Exists(path))File.Replace(temporary,path,null);else File.Move(temporary,path);break;}
+    catch(IOException){if(retry>=10)throw;System.Threading.Thread.Sleep(25);}
+   }
+  }
+  finally{if(File.Exists(temporary))try{File.Delete(temporary);}catch{}}
  }
  void Suppress(string key,string name){Validate(key,name);var existing=journal.Changes.FirstOrDefault(c=>string.Equals(c.Key,key,StringComparison.OrdinalIgnoreCase)&&c.Name==name);if(existing!=null)return;int? original=store.Read(key,name);var change=new OsPreferenceChange {Key=key,Name=name,Exists=original.HasValue,Original=original.GetValueOrDefault()};journal.Changes.Add(change);try{Save();}catch{journal.Changes.Remove(change);throw;}store.Write(key,name,0);}
  public void Apply(bool banners,bool sounds){Load();try{

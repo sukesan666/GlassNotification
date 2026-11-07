@@ -57,8 +57,11 @@ internal sealed class NotificationSenderFilterStore : INotificationSenderFilterS
   try {
    byte[] bytes=new UTF8Encoding(false).GetBytes(new JavaScriptSerializer().Serialize(rules));
    using(var stream=new FileStream(temporary,FileMode.CreateNew,FileAccess.Write,FileShare.None,4096,FileOptions.WriteThrough)){stream.Write(bytes,0,bytes.Length);stream.Flush(true);}
-   if(File.Exists(path))File.Replace(temporary,path,null);else File.Move(temporary,path);
-  }finally{if(File.Exists(temporary))File.Delete(temporary);}
+   for(int retry=0;;retry++){
+    try{if(File.Exists(path))File.Replace(temporary,path,null);else File.Move(temporary,path);break;}
+    catch(IOException){if(retry>=10)throw;System.Threading.Thread.Sleep(25);}
+   }
+  }finally{if(File.Exists(temporary))try{File.Delete(temporary);}catch{}}
  }
 }
 }

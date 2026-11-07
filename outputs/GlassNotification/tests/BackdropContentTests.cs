@@ -50,14 +50,14 @@ public static partial class Tests {
  sealed class ContentDevice : IBackdropNative,IBackdropContentNative,IBackdropColorNative,IBackdropStrengthNative {
   public BackdropStrength Strength;public int SetStrength(BackdropStrength value){Strength=value;return 0;}
   public string CardColor;public int SetColor(string value){CardColor=value;return 0;}
-  public byte[] Pixels;public int Width,Height;public bool Fail,Disposed;
+  public byte[] Pixels;public int Width,Height,PresentCalls;public bool Fail,Disposed;
   public string UnavailableReason(){return null;}
   public int SetType(IntPtr hwnd,int type){return 0;}
   public int ExtendFrame(IntPtr hwnd,bool enabled){return 0;}
   public bool HasContentTarget {get{return true;}}
   public int DeviceStatus {get;set;}
   // Connected to the optional content interface in the implementation step.
-  public int Present(int width,int height,int stride,byte[] pixels){Width=width;Height=height;Pixels=pixels;return Fail?-1:0;}
+  public int Present(int width,int height,int stride,byte[] pixels){PresentCalls++;Width=width;Height=height;Pixels=pixels;return Fail?-1:0;}
   public void SetOpacity(double opacity){}
   public void Dispose(){Disposed=true;}
  }

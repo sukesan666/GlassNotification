@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -17,12 +17,16 @@ public static class UiLocalization {
  static extern int DwmSetWindowAttribute(IntPtr hwnd,int attribute,ref int value,int valueSize);
  static readonly Dictionary<string,string> English=new Dictionary<string,string>(StringComparer.Ordinal) {
   {"Glass Notification — 通知のプレビュー","Glass Notification — Preview"},
+  {"設定モード","Settings mode"},{"動作モード","Active mode"},
+  {"設定モード：通知カードを動かさず固定表示したまま、設定の結果を確認・変更できます。","Settings mode: Keeps the notification card stationary so you can check and adjust settings live."},
+  {"動作モード：通常の通知受信とアニメーション表示を行います。","Active mode: Receives and animates notifications normally."},
   {"通知をまとめてテスト","Test notification"},
   {"現在のカード表示・文字設定と、選択中の通知音を確認します。音なし設定では音は鳴りません。","Test the current card appearance, text settings, and selected sound. No sound plays when sound is off."},
   {"通知カード","Notification card"},{"背景","Background"},{"Acrylic：すりガラス（推奨）","Acrylic: frosted glass (recommended)"},{"Mica：壁紙になじむ背景","Mica: blends with wallpaper"},{"オフ：不透明","Off: opaque"},
   {"すりガラスの強さ","Frosted-glass strength"},{"弱","Weak"},{"標準","Standard"},{"強","Strong"},{"強さは色の重なりを調整します。ぼかし半径はWindowsが管理します。","Strength adjusts color tint. Windows controls the blur radius."},
   {"カードの幅","Card width"},{"カードの高さ","Card height"},{"通知のフォント","Notification font"},{"文字サイズ","Font size"},{"通知カードの角を丸くする","Round notification card corners"},
   {"表示時間（秒）","Display duration (seconds)"},{"高コントラスト表示","High contrast"},{"カードの色","Card color"},{"文字の色","Text color"},
+  {"文字の縁取り色","Text outline color"},{"縁取りなし","No outline"},
   {"通知画像の大きさ","Image size"},{"拡大枠の画像の大きさを調整します。","Adjust the size of the notification image."},
   {"通知画像の位置","Image position"},{"右","Right"},{"左","Left"},
   {"本文画像、送信者アイコン、アプリアイコンの順で表示します。","Shows the content image, then the sender icon, then the app icon when available."},
@@ -137,6 +141,8 @@ public static class UiLocalization {
   {"Chromeの通知設定を完全に元に戻すには、通知アクセスの許可を手動で解除してください。","To restore all Chrome notification settings, revoke notification access manually."}
  };
  static readonly Dictionary<string,string> Japanese=BuildJapaneseDictionary();
+ static readonly KeyValuePair<string,string>[] EnglishPrefixes= English.Where(item=>item.Key.EndsWith("。",StringComparison.Ordinal)||item.Key.EndsWith("…",StringComparison.Ordinal)||item.Key.EndsWith("：",StringComparison.Ordinal)||item.Key.EndsWith("： ",StringComparison.Ordinal)).OrderByDescending(item=>item.Key.Length).ToArray();
+ static readonly KeyValuePair<string,string>[] JapanesePrefixes=Japanese.Where(item=>item.Key.EndsWith(".",StringComparison.Ordinal)||item.Key.EndsWith("...",StringComparison.Ordinal)||item.Key.EndsWith(": ",StringComparison.Ordinal)).OrderByDescending(item=>item.Key.Length).ToArray();
  static Dictionary<string,string> BuildJapaneseDictionary(){
   var dict=new Dictionary<string,string>(StringComparer.Ordinal);
   foreach(var pair in English)dict[pair.Value]=pair.Key;
@@ -149,9 +155,12 @@ public static class UiLocalization {
   string translated;
   if(string.Equals(language,"English",StringComparison.OrdinalIgnoreCase)) {
    if(English.TryGetValue(value,out translated))return translated;
-   foreach(var pair in English.OrderByDescending(item=>item.Key.Length))
-    if((pair.Key.EndsWith("。",StringComparison.Ordinal)||pair.Key.EndsWith("…",StringComparison.Ordinal)||pair.Key.EndsWith("：",StringComparison.Ordinal)||pair.Key.EndsWith("： ",StringComparison.Ordinal))&&value.StartsWith(pair.Key,StringComparison.Ordinal))
+   if(Japanese.ContainsKey(value))return value;
+   for(int i=0;i<EnglishPrefixes.Length;i++){
+    var pair=EnglishPrefixes[i];
+    if(value.StartsWith(pair.Key,StringComparison.Ordinal))
      return pair.Value+value.Substring(pair.Key.Length);
+   }
    const string allowed=" — 通知を表示";
    if(value.EndsWith(allowed,StringComparison.Ordinal))return value.Substring(0,value.Length-allowed.Length)+" — Show notifications";
    const string history="この起動中の通知：";
@@ -159,9 +168,12 @@ public static class UiLocalization {
    return value;
   }
   if(Japanese.TryGetValue(value,out translated))return translated;
-  foreach(var pair in Japanese.OrderByDescending(item=>item.Key.Length))
-   if((pair.Key.EndsWith(".",StringComparison.Ordinal)||pair.Key.EndsWith("...",StringComparison.Ordinal)||pair.Key.EndsWith(": ",StringComparison.Ordinal))&&value.StartsWith(pair.Key,StringComparison.Ordinal))
+  if(English.ContainsKey(value))return value;
+  for(int i=0;i<JapanesePrefixes.Length;i++){
+   var pair=JapanesePrefixes[i];
+   if(value.StartsWith(pair.Key,StringComparison.Ordinal))
     return pair.Value+value.Substring(pair.Key.Length);
+  }
   if(value.EndsWith(" — Show notifications",StringComparison.Ordinal))return value.Substring(0,value.Length-" — Show notifications".Length)+" — 通知を表示";
   const string englishHistory="Notifications this session: ";
   if(value.StartsWith(englishHistory,StringComparison.Ordinal))return "この起動中の通知："+value.Substring(englishHistory.Length);
@@ -204,6 +216,7 @@ public static class UiLocalization {
    return int.TryParse(Convert.ToString(key.GetValue("AppsUseLightTheme",1)),out preference)&&preference==0;
   }
  }
+ static SolidColorBrush FrozenBrush(Color color){var brush=new SolidColorBrush(color);brush.Freeze();return brush;}
  public static void ApplyTheme(Window window,bool dark) {
   ApplyTheme((DependencyObject)window,dark);
  }
@@ -216,9 +229,9 @@ public static class UiLocalization {
   Color selectionForeground=dark?Color.FromRgb(236,240,246):Color.FromRgb(32,44,64);
   Color scrollTrack=dark?Color.FromRgb(25,28,33):Color.FromRgb(238,241,245);
   Color scrollThumb=dark?Color.FromRgb(83,91,103):Color.FromRgb(170,180,194);
-  var window=root as Window;if(window!=null)window.Background=new SolidColorBrush(background);
+  var window=root as Window;if(window!=null)window.Background=FrozenBrush(background);
   if(window!=null){ApplyTitleBarTheme(window,dark);ApplySystemThemeResources(window,surface,foreground,border,selectionSurface,selectionForeground);ApplyControlStyles(window,dark,surface,foreground,border,selectionSurface,scrollTrack,scrollThumb);}
-  ApplyThemeElement(root,new HashSet<DependencyObject>(),dark,surface,foreground,border,selectionSurface,selectionForeground,scrollTrack,scrollThumb);
+  ApplyThemeElement(root,new HashSet<DependencyObject>(),dark,surface,foreground,border,selectionSurface,selectionForeground,scrollTrack,scrollThumb,FrozenBrush(surface),FrozenBrush(foreground),FrozenBrush(border),FrozenBrush(selectionSurface),FrozenBrush(scrollTrack),FrozenBrush(scrollThumb),FrozenBrush(background),FrozenBrush(Color.FromRgb(84,118,159)));
  }
  static void ApplyTitleBarTheme(Window window,bool dark) {
   IntPtr handle=new WindowInteropHelper(window).Handle;
@@ -227,21 +240,20 @@ public static class UiLocalization {
   int result=DwmSetWindowAttribute(handle,DwmUseImmersiveDarkMode,ref value,sizeof(int));
   if(result<0)DwmSetWindowAttribute(handle,DwmUseImmersiveDarkModeBefore20H1,ref value,sizeof(int));
  }
- static void ApplyThemeElement(DependencyObject current,HashSet<DependencyObject> visited,bool dark,Color surface,Color foreground,Color border,Color selectionSurface,Color selectionForeground,Color scrollTrack,Color scrollThumb) {
+ static void ApplyThemeElement(DependencyObject current,HashSet<DependencyObject> visited,bool dark,Color surface,Color foreground,Color border,Color selectionSurface,Color selectionForeground,Color scrollTrack,Color scrollThumb,SolidColorBrush surfaceBrush,SolidColorBrush foregroundBrush,SolidColorBrush borderBrush,SolidColorBrush selectionSurfaceBrush,SolidColorBrush scrollTrackBrush,SolidColorBrush scrollThumbBrush,SolidColorBrush backgroundBrush,SolidColorBrush accentBrush) {
   if(current==null||!visited.Add(current))return;
   var borderElement=current as Border;
   if(borderElement!=null) {
-    if(!IsColorSwatch(borderElement))borderElement.Background=ThemeBackground(borderElement.Background,surface);
-   borderElement.BorderBrush=new SolidColorBrush(border);
+    if(!IsColorSwatch(borderElement))borderElement.Background=ThemeBackground(borderElement.Background,surface,surfaceBrush);
+   borderElement.BorderBrush=borderBrush;
   }
   var panel=current as Panel;
-  if(panel!=null)panel.Background=ThemeBackground(panel.Background,surface);
+  if(panel!=null)panel.Background=ThemeBackground(panel.Background,surface,surfaceBrush);
   var control=current as Control;
   if(control!=null) {
-   control.Foreground=new SolidColorBrush(foreground);
-   if(control is ButtonBase||control is ComboBox||control is ListBox||control is TextBox||control is Slider)control.Background=control.Name=="ShowSample"?new SolidColorBrush(Color.FromRgb(84,118,159)):new SolidColorBrush(surface);
-   if(control is ButtonBase||control is ComboBox||control is ListBox||control is TextBox||control is Slider)control.BorderBrush=new SolidColorBrush(border);
-   if(control.Name=="ShowSample"){control.Background=new SolidColorBrush(Color.FromRgb(84,118,159));control.Foreground=Brushes.White;}
+   control.Foreground=foregroundBrush;
+   if(control is ButtonBase||control is ComboBox||control is ListBox||control is TextBox||control is Slider)control.Background=surfaceBrush;
+   if(control is ButtonBase||control is ComboBox||control is ListBox||control is TextBox||control is Slider)control.BorderBrush=borderBrush;
   }
   var combo=current as ComboBox;
   if(combo!=null){
@@ -254,70 +266,70 @@ public static class UiLocalization {
    ApplyControlThemeResources(list.Resources,surface,foreground,border,selectionSurface,selectionForeground);
   }
   var slider=current as Slider;
-  if(slider!=null){slider.Background=new SolidColorBrush(scrollTrack);slider.Foreground=new SolidColorBrush(selectionSurface);}
-  var scroll=current as ScrollViewer;if(scroll!=null)scroll.Background=new SolidColorBrush(backgroundColor(dark));
+  if(slider!=null){slider.Background=scrollTrackBrush;slider.Foreground=selectionSurfaceBrush;}
+  var scroll=current as ScrollViewer;if(scroll!=null)scroll.Background=backgroundBrush;
   var scrollBar=current as ScrollBar;
-  if(scrollBar!=null){scrollBar.Background=new SolidColorBrush(scrollTrack);scrollBar.Foreground=new SolidColorBrush(scrollThumb);scrollBar.BorderBrush=new SolidColorBrush(border);}
+  if(scrollBar!=null){scrollBar.Background=scrollTrackBrush;scrollBar.Foreground=scrollThumbBrush;scrollBar.BorderBrush=borderBrush;}
   var thumb=current as Thumb;
-  if(thumb!=null){thumb.Background=new SolidColorBrush(scrollThumb);thumb.BorderBrush=new SolidColorBrush(border);}
-  var text=current as TextBlock;if(text!=null)text.Foreground=new SolidColorBrush(foreground);
+  if(thumb!=null){thumb.Background=scrollThumbBrush;thumb.BorderBrush=borderBrush;}
+  var text=current as TextBlock;if(text!=null)text.Foreground=foregroundBrush;
   foreach(object child in LogicalTreeHelper.GetChildren(current)) {
    var dependency=child as DependencyObject;
-   if(dependency!=null)ApplyThemeElement(dependency,visited,dark,surface,foreground,border,selectionSurface,selectionForeground,scrollTrack,scrollThumb);
+   if(dependency!=null)ApplyThemeElement(dependency,visited,dark,surface,foreground,border,selectionSurface,selectionForeground,scrollTrack,scrollThumb,surfaceBrush,foregroundBrush,borderBrush,selectionSurfaceBrush,scrollTrackBrush,scrollThumbBrush,backgroundBrush,accentBrush);
   }
   var visual=current as Visual;
-  if(visual!=null)for(int i=0;i<VisualTreeHelper.GetChildrenCount(visual);i++)ApplyThemeElement(VisualTreeHelper.GetChild(visual,i),visited,dark,surface,foreground,border,selectionSurface,selectionForeground,scrollTrack,scrollThumb);
+  if(visual!=null)for(int i=0;i<VisualTreeHelper.GetChildrenCount(visual);i++)ApplyThemeElement(VisualTreeHelper.GetChild(visual,i),visited,dark,surface,foreground,border,selectionSurface,selectionForeground,scrollTrack,scrollThumb,surfaceBrush,foregroundBrush,borderBrush,selectionSurfaceBrush,scrollTrackBrush,scrollThumbBrush,backgroundBrush,accentBrush);
  }
   static void ApplySystemThemeResources(Window window,Color surface,Color foreground,Color border,Color selectionSurface,Color selectionForeground){
-   window.Resources[SystemColors.WindowBrushKey]=new SolidColorBrush(surface);
-   window.Resources[SystemColors.ControlBrushKey]=new SolidColorBrush(surface);
-   window.Resources[SystemColors.ControlLightBrushKey]=new SolidColorBrush(surface);
-   window.Resources[SystemColors.ControlDarkBrushKey]=new SolidColorBrush(border);
-   window.Resources[SystemColors.WindowTextBrushKey]=new SolidColorBrush(foreground);
-   window.Resources[SystemColors.ControlTextBrushKey]=new SolidColorBrush(foreground);
-   window.Resources[SystemColors.GrayTextBrushKey]=new SolidColorBrush(Color.FromRgb(168,176,188));
+   window.Resources[SystemColors.WindowBrushKey]=FrozenBrush(surface);
+   window.Resources[SystemColors.ControlBrushKey]=FrozenBrush(surface);
+   window.Resources[SystemColors.ControlLightBrushKey]=FrozenBrush(surface);
+   window.Resources[SystemColors.ControlDarkBrushKey]=FrozenBrush(border);
+   window.Resources[SystemColors.WindowTextBrushKey]=FrozenBrush(foreground);
+   window.Resources[SystemColors.ControlTextBrushKey]=FrozenBrush(foreground);
+   window.Resources[SystemColors.GrayTextBrushKey]=FrozenBrush(Color.FromRgb(168,176,188));
    ApplyControlThemeResources(window.Resources,surface,foreground,border,selectionSurface,selectionForeground);
    window.Resources[SystemColors.WindowColorKey]=surface;
    window.Resources[SystemColors.ControlColorKey]=surface;
   }
   static Color backgroundColor(bool dark){return dark?Color.FromRgb(25,28,33):Color.FromRgb(245,247,250);}
  static bool IsColorSwatch(Border border){return Math.Abs(border.Width-14)<.1&&Math.Abs(border.Height-14)<.1;}
- static Brush ThemeBackground(Brush existing,Color surface) {
+ static Brush ThemeBackground(Brush existing,Color surface,SolidColorBrush surfaceBrush) {
   var solid=existing as SolidColorBrush;
   if(solid==null)return existing;
   Color color=solid.Color;
   bool pale=color.A>0&&color.R>=225&&color.G>=225&&color.B>=225;
-  return pale?new SolidColorBrush(color.A<255?Color.FromArgb(color.A,surface.R,surface.G,surface.B):surface):existing;
+  return pale?(color.A<255?FrozenBrush(Color.FromArgb(color.A,surface.R,surface.G,surface.B)):surfaceBrush):existing;
  }
  static Style ItemStyle(Type itemType,bool dark,Color surface,Color foreground,Color border,Color selectionSurface,Color selectionForeground) {
   var style=new Style(itemType);
   if(dark)style.Setters.Add(new Setter(Control.TemplateProperty,ParseTemplate(itemType.Name,"<Border x:Name='Bd' Background='{TemplateBinding Background}' BorderBrush='{TemplateBinding BorderBrush}' BorderThickness='{TemplateBinding BorderThickness}' Padding='{TemplateBinding Padding}' SnapsToDevicePixels='True'><ContentPresenter HorizontalAlignment='{TemplateBinding HorizontalContentAlignment}' VerticalAlignment='{TemplateBinding VerticalContentAlignment}'/></Border>")));
-  style.Setters.Add(new Setter(Control.BackgroundProperty,new SolidColorBrush(surface)));
-  style.Setters.Add(new Setter(Control.ForegroundProperty,new SolidColorBrush(foreground)));
-  style.Setters.Add(new Setter(Control.BorderBrushProperty,new SolidColorBrush(border)));
+  style.Setters.Add(new Setter(Control.BackgroundProperty,FrozenBrush(surface)));
+  style.Setters.Add(new Setter(Control.ForegroundProperty,FrozenBrush(foreground)));
+  style.Setters.Add(new Setter(Control.BorderBrushProperty,FrozenBrush(border)));
   var hover=new Trigger {Property=Control.IsMouseOverProperty,Value=true};
-  hover.Setters.Add(new Setter(Control.BackgroundProperty,new SolidColorBrush(selectionSurface)));
-  hover.Setters.Add(new Setter(Control.ForegroundProperty,new SolidColorBrush(selectionForeground)));
+  hover.Setters.Add(new Setter(Control.BackgroundProperty,FrozenBrush(selectionSurface)));
+  hover.Setters.Add(new Setter(Control.ForegroundProperty,FrozenBrush(selectionForeground)));
   style.Triggers.Add(hover);
   var selected=new Trigger {Property=ListBoxItem.IsSelectedProperty,Value=true};
-  selected.Setters.Add(new Setter(Control.BackgroundProperty,new SolidColorBrush(selectionSurface)));
-  selected.Setters.Add(new Setter(Control.ForegroundProperty,new SolidColorBrush(selectionForeground)));
+  selected.Setters.Add(new Setter(Control.BackgroundProperty,FrozenBrush(selectionSurface)));
+  selected.Setters.Add(new Setter(Control.ForegroundProperty,FrozenBrush(selectionForeground)));
   style.Triggers.Add(selected);
   return style;
  }
  static void ApplySelectionResources(ResourceDictionary resources,Color selectionSurface,Color selectionForeground){
-  resources[SystemColors.HighlightBrushKey]=new SolidColorBrush(selectionSurface);
-  resources[SystemColors.HighlightTextBrushKey]=new SolidColorBrush(selectionForeground);
-  resources[SystemColors.InactiveSelectionHighlightBrushKey]=new SolidColorBrush(selectionSurface);
-  resources[SystemColors.InactiveSelectionHighlightTextBrushKey]=new SolidColorBrush(selectionForeground);
+  resources[SystemColors.HighlightBrushKey]=FrozenBrush(selectionSurface);
+  resources[SystemColors.HighlightTextBrushKey]=FrozenBrush(selectionForeground);
+  resources[SystemColors.InactiveSelectionHighlightBrushKey]=FrozenBrush(selectionSurface);
+  resources[SystemColors.InactiveSelectionHighlightTextBrushKey]=FrozenBrush(selectionForeground);
  }
  static void ApplyControlThemeResources(ResourceDictionary resources,Color surface,Color foreground,Color border,Color selectionSurface,Color selectionForeground){
-  resources[SystemColors.WindowBrushKey]=new SolidColorBrush(surface);
-  resources[SystemColors.ControlBrushKey]=new SolidColorBrush(surface);
-  resources[SystemColors.ControlLightBrushKey]=new SolidColorBrush(surface);
-  resources[SystemColors.ControlDarkBrushKey]=new SolidColorBrush(border);
-  resources[SystemColors.WindowTextBrushKey]=new SolidColorBrush(foreground);
-  resources[SystemColors.ControlTextBrushKey]=new SolidColorBrush(foreground);
+  resources[SystemColors.WindowBrushKey]=FrozenBrush(surface);
+  resources[SystemColors.ControlBrushKey]=FrozenBrush(surface);
+  resources[SystemColors.ControlLightBrushKey]=FrozenBrush(surface);
+  resources[SystemColors.ControlDarkBrushKey]=FrozenBrush(border);
+  resources[SystemColors.WindowTextBrushKey]=FrozenBrush(foreground);
+  resources[SystemColors.ControlTextBrushKey]=FrozenBrush(foreground);
   ApplySelectionResources(resources,selectionSurface,selectionForeground);
  }
  const string XamlNamespaces="xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'";

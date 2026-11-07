@@ -77,16 +77,11 @@ API NotificationsRead(void* p,int* ready,const wchar_t** json){if(!ready||!json)
  if(c.listener.GetAccessStatus()!=UserNotificationListenerAccessStatus::Allowed)return E_ACCESSDENIED;
  if(!c.snapshot){
   if(!c.read)c.read=c.listener.GetNotificationsAsync(NotificationKinds::Toast);
-  for(int wait=0;wait<6&&c.read.Status()==AsyncStatus::Started;wait++)Sleep(3);
   if(c.read.Status()==AsyncStatus::Started)return S_OK;
   c.snapshot=c.read.GetResults();c.read=nullptr;PrepareLogos(c);
  }
  bool waiting=false;
- for(int wait=0;wait<4;wait++){
-  waiting=false;for(auto const& entry:c.logos)waiting=entry.second->Advance()||waiting;
-  if(!waiting)break;
-  Sleep(3);
- }
+ for(auto const& entry:c.logos)waiting=entry.second->Advance()||waiting;
  if(waiting&&GetTickCount64()<c.logoDeadline)return S_OK;
  if(waiting)for(auto const& entry:c.logos)entry.second->Timeout();
  JsonArray result,iconKeys;JsonObject icons;

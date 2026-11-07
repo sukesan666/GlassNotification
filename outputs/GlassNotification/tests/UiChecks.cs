@@ -11,6 +11,8 @@ public static partial class Tests {
   BackdropServiceTests();
   BackdropContentTests();
   NotificationColorTests();
+  NotificationTextOutlineTests();
+  NotificationInteractionTests();
   NotificationAppIconTests();
   NotificationAppearanceTests();
   var monitors=NativeWindow.GetMonitors(); Check(monitors.Length>0,"monitor discovery");

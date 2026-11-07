@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 namespace Glass {
 public static partial class Tests {
  [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hwnd,int attribute,out int value,int size);
@@ -11,9 +12,9 @@ public static partial class Tests {
  [DllImport("gdi32.dll")] static extern IntPtr CreateRectRgn(int l,int t,int r,int b);
  [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr value);
  static void NotificationAppearanceTests() {
+  NotificationOpaqueEdgeTests();
   NotificationSlideTests();
   CompositionSlideTests();
-  NotificationCloseButtonTests();
   NotificationThumbnailSizeTests();
   var card=new NotificationWindow();var monitor=NativeWindow.GetMonitors()[0];var settings=new AppSettings {FontFamilyName="Consolas",FontSize=18,RoundedCorners=true,Mode=BackdropMode.Acrylic};
   card.Apply(settings,monitor);card.ShowCard();Pump(300);
@@ -37,6 +38,26 @@ public static partial class Tests {
   Check(card.FontFamily.Source==NotificationFonts.Default,"missing font safely falls back without crashing card");
   card.Close();
  }
+ static void NotificationOpaqueEdgeTests(){
+  var card=new NotificationWindow();
+  try{
+   var monitor=NativeWindow.GetMonitors()[0];var surface=(Border)card.Content;
+   var colors=new[]{"Default","#FFFFFF","#8ECAFF"};var expected=new[]{Color.FromRgb(241,245,250),Colors.White,Color.FromRgb(142,202,255)};
+   foreach(bool rounded in new[]{false,true})for(int i=0;i<colors.Length;i++)foreach(double scale in new[]{1.0,1.5,2.0}){
+    card.Apply(new AppSettings {Mode=BackdropMode.Off,CardColor=colors[i],RoundedCorners=rounded},monitor);
+    surface.Measure(new Size(card.Width,card.Height));surface.Arrange(new Rect(0,0,card.Width,card.Height));surface.UpdateLayout();
+    int width=(int)Math.Ceiling(card.Width*scale),height=(int)Math.Ceiling(card.Height*scale);
+    var bitmap=new RenderTargetBitmap(width,height,96*scale,96*scale,PixelFormats.Pbgra32);bitmap.Render(surface);
+    int stride=width*4;var pixels=new byte[stride*height];bitmap.CopyPixels(pixels,stride,0);
+    foreach(var point in new[]{new Point(width/2,0),new Point(width/2,height-1),new Point(0,height/2),new Point(width-1,height/2)}){
+     int offset=(int)point.Y*stride+(int)point.X*4;
+     Check(pixels[offset+3]==255&&pixels[offset]==expected[i].B&&pixels[offset+1]==expected[i].G&&pixels[offset+2]==expected[i].R,"opaque notification color reaches every straight edge without a transparent black gap: "+colors[i]+" rounded="+rounded+" scale="+scale);
+    }
+   }
+   card.Apply(new AppSettings {Mode=BackdropMode.Off,HighContrast=true},monitor);
+   Check(surface.BorderThickness.Left==2&&((SolidColorBrush)surface.BorderBrush).Color==Colors.White,"high contrast retains its intentional visible border");
+  }finally{card.Close();}
+ }
  static void NotificationSlideTests(){
   Check(NotificationWindow.EntryDurationSeconds==.66&&NotificationWindow.ExitDurationSeconds==.33&&NotificationWindow.AnimationFramesPerSecond==120,"notification slide uses requested durations and target frame rate");
   foreach(var screen in new[]{new Rect(0,0,1920,1080),new Rect(-2560,-100,2560,1440)})foreach(bool left in new[]{true,false}){
@@ -49,30 +70,6 @@ public static partial class Tests {
    var middle=NotificationWindow.SlidePosition(target,screen,left,.5,true,16);
    Check(middle.Y==target.Y&&middle.Width==target.Width&&middle.Height==target.Height,"slide preserves vertical stack position and card size");
   }
- }
- static void NotificationCloseButtonTests(){
-  var card=new NotificationWindow();
-  try{
-   var monitor=new MonitorInfo {WorkAreaPx=new Rect(0,0,1920,1080),DpiScale=1};
-   var bitmap=System.Windows.Media.Imaging.BitmapSource.Create(1,1,96,96,PixelFormats.Bgra32,null,new byte[]{0,120,240,255},4);
-   card.SetNotification(new SystemNotification {ContentImage=bitmap});
-   var surface=(Border)card.Content;var grid=(Grid)surface.Child;
-   var overlay=(Canvas)grid.Children[grid.Children.Count-1];var button=(Button)overlay.Children[0];
-   int dismisses=0,opens=0;card.NotificationDismissRequested+=delegate {dismisses++;};card.NotificationClicked+=delegate {opens++;};
-   foreach(string position in new[]{"Right","Left"})foreach(int size in new[]{24,56,128}){
-    card.Apply(new AppSettings {ImagePosition=position,ImageSize=size,Mode=BackdropMode.Off},monitor);
-    surface.Measure(new Size(card.Width,card.Height));surface.Arrange(new Rect(0,0,card.Width,card.Height));surface.UpdateLayout();
-    double before=((StackPanel)grid.Children[1]).ActualWidth;
-    Check(button.Visibility==Visibility.Collapsed,"close overlay is hidden before hover");
-    card.SetHoverState(true);surface.UpdateLayout();
-    Check(button.Visibility==Visibility.Visible&&button.Width==size&&button.Height==size,"hover close button matches configured image size: "+size);
-    Check(Canvas.GetLeft(button)==(position=="Right"?0:Math.Max(0,overlay.ActualWidth-size)),"hover close button floats opposite the selected image side: "+position);
-    Check(((StackPanel)grid.Children[1]).ActualWidth==before,"hover overlay does not move or narrow the notification text");
-    card.SetHoverState(false);Check(button.Visibility==Visibility.Collapsed,"close overlay disappears when hover ends");
-   }
-   card.SetHoverState(true);button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-   Check(dismisses==1&&opens==0&&button.Visibility==Visibility.Collapsed,"close button requests dismissal without activating notification link");
-  }finally{card.Close();}
  }
  static void NotificationThumbnailSizeTests() {
   var card=new NotificationWindow();

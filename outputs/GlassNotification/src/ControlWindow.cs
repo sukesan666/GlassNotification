@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Windows;
@@ -16,11 +16,13 @@ using Microsoft.Win32;
 using Forms = System.Windows.Forms;
 namespace Glass {
 public sealed class ControlWindow : Window {
+ enum ColorSetting {Card,Text,TextOutline}
  readonly NotificationWindow card;readonly NotificationWindow[] cards;readonly NotificationController controller;readonly string settingsPath;
- readonly StackPanel panel;readonly TextBlock status,fileName;readonly Slider cardWidth,cardHeight,cardFont,margin,displaySeconds,imageSize;
- readonly TextBlock widthValue,heightValue,fontValue,marginValue,displaySecondsValue,imageSizeValue;readonly ComboBox display,position,sound;readonly Button preview;
+ readonly StackPanel panel;readonly TextBlock status,fileName;readonly Slider cardWidth,cardHeight,cardFont,margin,displaySeconds,imageSize,uiScale;readonly ComboBox display,position,sound;readonly Button preview;
+ readonly TextBlock widthValue,heightValue,fontValue,marginValue,displaySecondsValue,imageSizeValue,uiScaleValue;
  readonly ComboBox backdropMode,backdropStrength,cardFontFamily;readonly CheckBox roundedCorners;readonly TextBlock backdropStatus;
- readonly ComboBox cardColor,textColor,uiScale,themeMode,language,imagePosition;readonly Button showSample;readonly CheckBox startWithWindows,startMinimizedToTray,highContrast;
+ readonly ComboBox cardColor,textColor,textOutlineColor,themeMode,language,imagePosition;readonly CheckBox startWithWindows,startMinimizedToTray,highContrast;
+ readonly Button modeSettings,modeActive;readonly TextBlock modeDescription;
  readonly OsNotificationPanel osNotifications;
  readonly IStartupRegistration startupRegistration;
  readonly IAppRuntimeStateStore runtimeStateStore;readonly AppRuntimeState runtimeState;
@@ -33,6 +35,7 @@ public sealed class ControlWindow : Window {
  internal bool IsPaused {get;private set;}
  internal bool IsInTray {get;private set;}
  internal bool IsTrayIconVisible {get{return trayIcon.Visible;}}
+ public OperationMode CurrentMode {get{return controller.Mode;}}
  public AppSettings CurrentSettings {get{return controller.Settings.Copy();}}
  static bool IsChromeLinkedExecutable() {
   var entry=Assembly.GetEntryAssembly();
@@ -51,8 +54,17 @@ public sealed class ControlWindow : Window {
   WindowStartupLocation=WindowStartupLocation.CenterScreen;Background=Brush("#F5F7FA");FontFamily=new FontFamily("Yu Gothic UI");FontSize=13;
   var scroll=new ScrollViewer {Background=Background,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled,CanContentScroll=false};VirtualizingPanel.SetScrollUnit(scroll,ScrollUnit.Pixel);
    panel=new StackPanel {Margin=new Thickness(28,20,28,20)};scroll.Content=panel;Content=scroll;
-   showSample=Button("通知をまとめてテスト","ShowSample");showSample.Background=Brush("#54769F");showSample.Foreground=Brushes.White;showSample.BorderThickness=new Thickness(0);showSample.Padding=new Thickness(12,11,12,11);panel.Children.Add(showSample);
-   panel.Children.Add(new TextBlock {Text="現在のカード表示・文字設定と、選択中の通知音を確認します。音なし設定では音は鳴りません。",TextWrapping=TextWrapping.Wrap,FontSize=11,Foreground=Brush("#637286"),Margin=new Thickness(0,5,0,0)});
+   var modeRow=new Grid {Margin=new Thickness(0,0,0,4)};
+   modeRow.ColumnDefinitions.Add(new ColumnDefinition {Width=new GridLength(1,GridUnitType.Star)});
+   modeRow.ColumnDefinitions.Add(new ColumnDefinition {Width=new GridLength(8)});
+   modeRow.ColumnDefinitions.Add(new ColumnDefinition {Width=new GridLength(1,GridUnitType.Star)});
+   modeSettings=Button("設定モード","ModeSettings");modeSettings.Name="ModeSettings";
+   modeActive=Button("動作モード","ModeActive");modeActive.Name="ModeActive";Grid.SetColumn(modeActive,2);
+   modeRow.Children.Add(modeSettings);modeRow.Children.Add(modeActive);
+   panel.Children.Add(modeRow);
+   modeDescription=new TextBlock {Name="ModeDescription",TextWrapping=TextWrapping.Wrap,FontSize=11,Foreground=Brush("#637286"),Margin=new Thickness(0,2,0,10)};
+   RegisterName("ModeDescription",modeDescription);
+   panel.Children.Add(modeDescription);
    var columns=new Grid {Margin=new Thickness(0,10,0,0)};
    columns.ColumnDefinitions.Add(new ColumnDefinition {Width=new GridLength(1,GridUnitType.Star)});
    columns.ColumnDefinitions.Add(new ColumnDefinition {Width=new GridLength(24)});
@@ -62,7 +74,7 @@ public sealed class ControlWindow : Window {
    var rightCol=new StackPanel();Grid.SetColumn(rightCol,2);columns.Children.Add(rightCol);
    target=leftCol;Section("基本設定");
    themeMode=ComboRow("テーマ","ThemeMode");themeMode.ItemsSource=new[]{"システムに合わせる","ライト","ダーク"};
-   uiScale=ComboRow("アプリの拡大率","UiScale");uiScale.ItemsSource=new[]{"100%","110%","120%","130%","140%","150%"};
+   uiScale=SliderRow("アプリの拡大率",100,150,10,"UiScale",out uiScaleValue);
    display=ComboRow("画面","CardDisplay");position=ComboRow("位置","CardPosition");position.ItemsSource=new[]{"右上","左上","右下","左下"};
    displaySeconds=SliderRow("表示時間（秒）",1,60,1,"DisplaySeconds",out displaySecondsValue);
    imageSize=SliderRow("通知画像の大きさ",24,128,4,"ImageSize",out imageSizeValue);
@@ -89,7 +101,8 @@ public sealed class ControlWindow : Window {
   cardFont=SliderRow("文字サイズ",11,24,1,"CardFont",out fontValue);
   roundedCorners=new CheckBox {Content="通知カードの角を丸くする",Margin=new Thickness(0,8,0,0), Foreground=Brush("#637286")};RegisterName("CardRoundedCorners",roundedCorners);target.Children.Add(roundedCorners);
   highContrast=new CheckBox {Content=new TextBlock {Text="高コントラスト表示",TextWrapping=TextWrapping.Wrap},Margin=new Thickness(0,5,0,0),Foreground=Brush("#637286")};RegisterName("HighContrast",highContrast);target.Children.Add(highContrast);
-  cardColor=ColorRow("カードの色","CardColor",true);textColor=ColorRow("文字の色","TextColor",false);
+  cardColor=ColorRow("カードの色","CardColor",ColorSetting.Card);textColor=ColorRow("文字の色","TextColor",ColorSetting.Text);
+  textOutlineColor=ColorRow("文字の縁取り色","TextOutlineColor",ColorSetting.TextOutline);
   margin=SliderRow("端からの余白",0,120,4,"CardMargin",out marginValue);
   target=systemGroup;
   startWithWindows=new CheckBox {Content="Windowsへのサインイン時に起動する",Margin=new Thickness(0,5,0,0),Foreground=Brush("#637286")};RegisterName("StartWithWindows",startWithWindows);target.Children.Add(startWithWindows);
@@ -101,9 +114,10 @@ public sealed class ControlWindow : Window {
   var reset=Button("初期値に戻す","ResetSettings");var exit=Button("終了","ExitApp");Grid.SetColumn(exit,1);reset.Margin=new Thickness(0,0,8,0);actions.Children.Add(reset);actions.Children.Add(exit);panel.Children.Add(actions);
   card=new NotificationWindow();
   cards=new[]{card,new NotificationWindow(),new NotificationWindow()};
-  foreach(var c in cards){var current=c;current.DpiEnvironmentChanged+=DisplayChanged;current.BackdropChanged+=BackdropChanged;current.NotificationClicked+=delegate(SystemNotification n){CardClicked(current,n);};current.NotificationDismissRequested+=delegate {if(!closed)controller.DismissCard(current);};}
+  foreach(var c in cards){var current=c;current.DpiEnvironmentChanged+=DisplayChanged;current.BackdropChanged+=BackdropChanged;current.NotificationClicked+=delegate(SystemNotification n){CardClicked(current,n);};}
   var audio=new SoundService(new WaveOutput(),PackageRuntime.Current.ChimePath);
   controller=new NotificationController(cards,audio,new DispatcherScheduler(),ApplySettings,Persist,Report);
+  controller.SampleNotificationProvider=CreateTestNotification;
   notificationHistory=new NotificationHistory();
   osNotifications=new OsNotificationPanel(this,controller,SystemNotificationSource.Register,senderFilters);osNotifications.Margin=new Thickness(0,0,0,4);chromeGroup.Children.Add(osNotifications);
   var historyPanel=historyGroup;
@@ -125,36 +139,40 @@ public sealed class ControlWindow : Window {
   trayIcon=new Forms.NotifyIcon {Icon=trayApplicationIcon,Text="Glass Notification",ContextMenuStrip=trayMenu,Visible=true};
   trayIcon.DoubleClick+=delegate {Dispatcher.BeginInvoke(new Action(RestoreFromTray));};
   trayPause.Enabled=true;trayResume.Enabled=false;
+  controller.SetMode(OperationMode.Settings);
+  osNotifications.SetPollingSuspended(true);
   controller.Initialize(initial);string startupWarning=null;
   if(initial.StartWithWindows)try{startupRegistration.SetEnabled(true);}catch(Exception e){startupWarning="Windows起動時の登録を適用できませんでした。"+e.Message;}
-  Sync();ApplyLanguage();ApplyTheme();UpdateTrayLanguage();if(warning!=null)Report(warning);if(startupWarning!=null)Report(startupWarning);
-  cardWidth.ValueChanged+=delegate {Change(delegate(AppSettings s){s.Width=cardWidth.Value;});};
+  Sync();ApplyLanguage();ApplyTheme();UpdateTrayLanguage();UpdateModeControls();if(warning!=null)Report(warning);if(startupWarning!=null)Report(startupWarning);
+  modeSettings.Click+=delegate {SetOperationMode(OperationMode.Settings);};
+  modeActive.Click+=delegate {SetOperationMode(OperationMode.Active);};
+  BindSlider(cardWidth,delegate(AppSettings s,double v){s.Width=v;});
   backdropMode.SelectionChanged+=delegate {if(backdropMode.SelectedIndex>=0)Change(delegate(AppSettings s){s.Mode=backdropMode.SelectedIndex==0?BackdropMode.Acrylic:backdropMode.SelectedIndex==1?BackdropMode.Mica:BackdropMode.Off;});};
   backdropStrength.SelectionChanged+=delegate {if(backdropStrength.SelectedIndex>=0)Change(delegate(AppSettings s){s.BackdropStrength=(BackdropStrength)backdropStrength.SelectedIndex;});};
-  cardHeight.ValueChanged+=delegate {Change(delegate(AppSettings s){s.Height=cardHeight.Value;});};
-  cardFont.ValueChanged+=delegate {Change(delegate(AppSettings s){s.FontSize=cardFont.Value;});};
+  BindSlider(cardHeight,delegate(AppSettings s,double v){s.Height=v;});
+  BindSlider(cardFont,delegate(AppSettings s,double v){s.FontSize=v;});
   cardFontFamily.SelectionChanged+=delegate {var family=cardFontFamily.SelectedItem as string;if(family!=null)Change(delegate(AppSettings s){s.FontFamilyName=family;});};
   roundedCorners.Checked+=delegate {Change(delegate(AppSettings s){s.RoundedCorners=true;});};
   roundedCorners.Unchecked+=delegate {Change(delegate(AppSettings s){s.RoundedCorners=false;});};
-  displaySeconds.ValueChanged+=delegate {Change(delegate(AppSettings s){s.DisplaySeconds=displaySeconds.Value;});};
-  imageSize.ValueChanged+=delegate {Change(delegate(AppSettings s){s.ImageSize=imageSize.Value;});};
+  BindSlider(displaySeconds,delegate(AppSettings s,double v){s.DisplaySeconds=v;});
+  BindSlider(imageSize,delegate(AppSettings s,double v){s.ImageSize=v;});
   imagePosition.SelectionChanged+=delegate {if(imagePosition.SelectedIndex>=0)Change(delegate(AppSettings s){s.ImagePosition=imagePosition.SelectedIndex==1?"Left":"Right";});};
   highContrast.Checked+=delegate {Change(delegate(AppSettings s){s.HighContrast=true;});};
   highContrast.Unchecked+=delegate {Change(delegate(AppSettings s){s.HighContrast=false;});};
   cardColor.SelectionChanged+=delegate {var color=cardColor.SelectedItem as NotificationColorChoice;if(color!=null)Change(delegate(AppSettings s){s.CardColor=color.Value;});};
   textColor.SelectionChanged+=delegate {var color=textColor.SelectedItem as NotificationColorChoice;if(color!=null)Change(delegate(AppSettings s){s.TextColor=color.Value;});};
-  margin.ValueChanged+=delegate {Change(delegate(AppSettings s){s.Margin=margin.Value;});};
+  textOutlineColor.SelectionChanged+=delegate {var color=textOutlineColor.SelectedItem as NotificationColorChoice;if(color!=null)Change(delegate(AppSettings s){s.TextOutlineColor=color.Value;});};
+  BindSlider(margin,delegate(AppSettings s,double v){s.Margin=v;});
   position.SelectionChanged+=delegate {if(position.SelectedIndex>=0)Change(delegate(AppSettings s){s.Corner=(Corner)position.SelectedIndex;});};
   display.SelectionChanged+=delegate {var m=display.SelectedItem as MonitorInfo;if(m!=null)Change(delegate(AppSettings s){s.MonitorId=m.Id;});};
   sound.SelectionChanged+=delegate {if(syncing)return;if(sound.SelectedIndex==2){ChooseSound();}else if(sound.SelectedIndex>=0){soundRequest++;Change(delegate(AppSettings s){s.SoundKind=(SoundKind)sound.SelectedIndex;});}};
   startWithWindows.Checked+=delegate {SetStartWithWindows(true);};startWithWindows.Unchecked+=delegate {SetStartWithWindows(false);};
   startMinimizedToTray.Checked+=delegate {Change(delegate(AppSettings s){s.StartMinimizedToTray=true;});};
   startMinimizedToTray.Unchecked+=delegate {Change(delegate(AppSettings s){s.StartMinimizedToTray=false;});};
-  uiScale.SelectionChanged+=delegate {if(uiScale.SelectedIndex>=0)Change(delegate(AppSettings s){s.UiScalePercent=100+uiScale.SelectedIndex*10;});};
+  BindSlider(uiScale,delegate(AppSettings s,double v){s.UiScalePercent=v;});
   themeMode.SelectionChanged+=delegate {if(themeMode.SelectedIndex>=0)Change(delegate(AppSettings s){s.ThemeMode=themeMode.SelectedIndex==0?"System":themeMode.SelectedIndex==1?"Light":"Dark";});};
   language.SelectionChanged+=delegate {if(language.SelectedIndex>=0)Change(delegate(AppSettings s){s.Language=language.SelectedIndex==0?"Japanese":"English";});};
   choose.Click+=delegate {ChooseSound();};preview.Click+=delegate {controller.PreviewSound();};
-  showSample.Click+=delegate {ShowTestNotification();};
   reset.Click+=delegate {
    soundRequest++;
    try{if(controller.Settings.StartWithWindows)startupRegistration.SetEnabled(false);controller.Reset();Sync();ApplyLanguage();ApplyTheme();}
@@ -164,8 +182,10 @@ public sealed class ControlWindow : Window {
   Loaded+=delegate {
    controller.SetPaused(runtimeState.DoNotDisturb);IsPaused=runtimeState.DoNotDisturb;trayPause.Enabled=!IsPaused;trayResume.Enabled=IsPaused;
    if(IsChromeLinkedExecutable())osNotifications.StartIntegration();
-   controller.ShowSample(false);Sync();CheckRestoredSound();
+   CheckRestoredSound();
    if(controller.Settings.StartMinimizedToTray||runtimeState.MinimizedToTray)MinimizeToTray();
+   else SetOperationMode(OperationMode.Settings);
+   Sync();
    if(runtimeStateStore.ErrorMessage!=null)Report(runtimeStateStore.ErrorMessage);
    else if(IsPaused)Report("休憩モード中です。通知の受信は継続し、カード表示と音を停止しています。");
   };
@@ -174,6 +194,47 @@ public sealed class ControlWindow : Window {
   SourceInitialized+=delegate {ApplyTheme();};
   SystemEvents.DisplaySettingsChanged+=DisplayChanged;
   SystemEvents.UserPreferenceChanged+=UserPreferenceChanged;
+  IsVisibleChanged+=delegate {
+   if(IsVisible&&!IsInTray&&controller!=null&&controller.Mode==OperationMode.Active){
+    SetOperationMode(OperationMode.Settings);
+   }
+  };
+ }
+ internal void SetOperationMode(OperationMode mode){
+  if(closed)return;
+  if(mode==OperationMode.Active&&!IsInTray){
+   MinimizeToTray();
+   return;
+  }
+  controller.SetMode(mode);
+  if(mode==OperationMode.Settings&&!IsPaused){
+   controller.ShowPreviewNotification(CreateTestNotification(),false);
+  }
+  osNotifications.SetPollingSuspended(mode!=OperationMode.Active);
+  UpdateModeControls();
+  Sync();
+ }
+ void UpdateModeControls(){
+  if(modeSettings==null||controller==null)return;
+  var mode=controller.Mode;
+  bool dark=controller.Settings.ThemeMode=="Dark"||controller.Settings.ThemeMode=="System"&&UiLocalization.IsSystemDark();
+  Brush inactiveSurface=dark?Brush("#272B32"):Brushes.White;
+  Brush inactiveForeground=dark?Brush("#E6E9EE"):Brush("#3D4F65");
+  Brush inactiveBorder=dark?Brush("#464C56"):Brush("#DDE3EB");
+  Brush activeSurface=Brush("#54769F");
+  Brush activeBorder=Brush("#54769F");
+  StyleModeButton(modeSettings,mode==OperationMode.Settings,activeSurface,activeBorder,inactiveSurface,inactiveForeground,inactiveBorder);
+  StyleModeButton(modeActive,mode==OperationMode.Active,activeSurface,activeBorder,inactiveSurface,inactiveForeground,inactiveBorder);
+  string desc=mode==OperationMode.Settings
+   ?"設定モード：通知カードを動かさず固定表示したまま、設定の結果を確認・変更できます。"
+   :"動作モード：通常の通知受信とアニメーション表示を行います。";
+  modeDescription.Text=UiLocalization.Translate(desc,CurrentLanguage);
+ }
+ static void StyleModeButton(Button button,bool selected,Brush activeSurface,Brush activeBorder,Brush inactiveSurface,Brush inactiveForeground,Brush inactiveBorder){
+  button.Background=selected?activeSurface:inactiveSurface;
+  button.Foreground=selected?Brushes.White:inactiveForeground;
+  button.BorderBrush=selected?activeBorder:inactiveBorder;
+  button.FontWeight=selected?FontWeights.SemiBold:FontWeights.Normal;
  }
  internal void MinimizeToTray(){
   if(closed||IsInTray)return;
@@ -181,13 +242,16 @@ public sealed class ControlWindow : Window {
   try{runtimeState.MinimizedToTray=true;runtimeStateStore.Save(runtimeState);}
   catch(Exception e){runtimeState.MinimizedToTray=wasMinimized;WindowState=WindowState.Normal;Report("前回状態を保存できないため、通知領域へ最小化できません。"+e.Message);return;}
   IsInTray=true;ShowInTaskbar=false;trayIcon.Visible=true;Hide();
+  SetOperationMode(OperationMode.Active);
  }
  internal void RestoreFromTray(){
   if(closed)return;
   bool wasMinimized=runtimeState.MinimizedToTray;
   try{runtimeState.MinimizedToTray=false;runtimeStateStore.Save(runtimeState);}
   catch(Exception e){runtimeState.MinimizedToTray=wasMinimized;Report("前回状態を保存できないため、ウィンドウを復元できません。"+e.Message);return;}
-  IsInTray=false;trayIcon.Visible=true;ShowInTaskbar=true;WindowState=WindowState.Normal;Show();Activate();
+  IsInTray=false;trayIcon.Visible=true;ShowInTaskbar=true;WindowState=WindowState.Normal;
+  SetOperationMode(OperationMode.Settings);
+  Show();Activate();
  }
  internal void SetPaused(bool value){
   if(closed||IsPaused==value)return;
@@ -195,7 +259,7 @@ public sealed class ControlWindow : Window {
   try{runtimeState.DoNotDisturb=value;runtimeState.MinimizedToTray=IsInTray;runtimeStateStore.Save(runtimeState);}
   catch(Exception e){runtimeState.DoNotDisturb=wasPaused;runtimeState.MinimizedToTray=wasMinimized;Report("前回状態を保存できないため、休憩モードを変更できません。"+e.Message);return;}
   IsPaused=value;controller.SetPaused(value);osNotifications.SetPaused(value);
-  showSample.IsEnabled=!value;preview.IsEnabled=!value&&controller.Settings.SoundKind!=SoundKind.None;
+  preview.IsEnabled=!value&&controller.Settings.SoundKind!=SoundKind.None;
   trayPause.Enabled=!value;trayResume.Enabled=value;
   RefreshHistoryControls();
   Report(value?"カード表示を一時停止しました。Windows通知の受信は継続します。":"カード表示を再開しました。");
@@ -224,16 +288,20 @@ public sealed class ControlWindow : Window {
  }
  void ReplaySelectedNotification(){
   var notification=historyList.SelectedItem as SystemNotification;if(notification==null||IsPaused)return;
-  controller.ShowNotification(notification,false);
+  controller.ShowPreviewNotification(notification,false);
  }
- void ShowTestNotification(){
-  controller.ShowPreviewNotification(new SystemNotification {
+ SystemNotification CreateTestNotification(){
+  return new SystemNotification {
    App="Glass Notification テスト",
    Title="表示・文字の確認",
    Body="この通知で文字サイズ・配色・表示時間と、設定した通知音を確認できます。",
    AppIcon=Icon as BitmapSource,
    Created=DateTimeOffset.Now
-  },true);
+  };
+ }
+ void ShowTestNotification(){
+  if(IsPaused)return;
+  controller.ShowPreviewNotification(CreateTestNotification(),true);
  }
  void RefreshHistoryControls(){
   if(replayHistory==null)return;
@@ -258,7 +326,7 @@ public sealed class ControlWindow : Window {
    Report(enabled?"Windowsへのサインイン時に起動します。":"Windows起動時の自動起動を解除しました。");
   }catch(Exception e){Sync();Report("Windows起動設定を変更できませんでした。"+e.Message);}
  }
- static SolidColorBrush Brush(string value){return new SolidColorBrush((Color)ColorConverter.ConvertFromString(value));}
+ static SolidColorBrush Brush(string value){var brush=new SolidColorBrush((Color)ColorConverter.ConvertFromString(value));brush.Freeze();return brush;}
  static BitmapFrame LoadApplicationIcon(){
   string path=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"assets","Square44x44Logo.png");
   var icon=BitmapFrame.Create(new Uri(path,UriKind.Absolute),BitmapCreateOptions.None,BitmapCacheOption.OnLoad);icon.Freeze();return icon;
@@ -273,30 +341,33 @@ public sealed class ControlWindow : Window {
  internal void ShowFromSecondLaunch(){
   if(closed)return;
   if(IsInTray||WindowState==WindowState.Minimized)RestoreFromTray();
-  else Show();
+  else{SetOperationMode(OperationMode.Settings);Show();}
   Topmost=true;Topmost=false;Activate();
  }
- Slider SliderRow(string label,double min,double max,double step,string name,out TextBlock value) {
-  var row=new Grid {Margin=new Thickness(0,5,0,5)};row.ColumnDefinitions.Add(new ColumnDefinition {Width=new GridLength(110)});row.ColumnDefinitions.Add(new ColumnDefinition());row.ColumnDefinitions.Add(new ColumnDefinition {Width=new GridLength(44)});
+ Slider SliderRow(string label,double minimum,double maximum,double step,string name,out TextBlock value) {
+  var row=new Grid {MinHeight=30,Margin=new Thickness(0,4,0,4)};row.ColumnDefinitions.Add(new ColumnDefinition {Width=new GridLength(110)});row.ColumnDefinitions.Add(new ColumnDefinition());row.ColumnDefinitions.Add(new ColumnDefinition {Width=new GridLength(44)});
   row.Children.Add(new TextBlock {Text=label,VerticalAlignment=VerticalAlignment.Center,Foreground=Brush("#637286")});
-  var slider=new Slider {Minimum=min,Maximum=max,TickFrequency=step,SmallChange=step,LargeChange=step,IsSnapToTickEnabled=true,VerticalAlignment=VerticalAlignment.Center,Margin=new Thickness(0,0,10,0)};
+  var slider=new Slider {Name=name,Minimum=minimum,Maximum=maximum,TickFrequency=step,SmallChange=step,LargeChange=step,IsSnapToTickEnabled=true,IsMoveToPointEnabled=true,VerticalAlignment=VerticalAlignment.Center,Margin=new Thickness(0,0,10,0)};
   AutomationProperties.SetName(slider,label);RegisterName(name,slider);Grid.SetColumn(slider,1);row.Children.Add(slider);
-  value=new TextBlock {VerticalAlignment=VerticalAlignment.Center,HorizontalAlignment=HorizontalAlignment.Right,Foreground=Brush("#3B4D63")};Grid.SetColumn(value,2);row.Children.Add(value);target.Children.Add(row);return slider;
+  value=new TextBlock {Name=name+"Value",VerticalAlignment=VerticalAlignment.Center,HorizontalAlignment=HorizontalAlignment.Right,Foreground=Brush("#3B4D63")};RegisterName(value.Name,value);Grid.SetColumn(value,2);row.Children.Add(value);target.Children.Add(row);return slider;
+ }
+ void BindSlider(Slider slider,Action<AppSettings,double> apply) {
+  slider.ValueChanged+=delegate {Change(delegate(AppSettings s){apply(s,slider.Value);});};
  }
  ComboBox ComboRow(string label,string name) {
   var row=new Grid {Margin=new Thickness(0,4,0,4)};row.ColumnDefinitions.Add(new ColumnDefinition {Width=new GridLength(110)});row.ColumnDefinitions.Add(new ColumnDefinition());row.Children.Add(new TextBlock {Text=label,VerticalAlignment=VerticalAlignment.Center,Foreground=Brush("#637286")} );
   var combo=new ComboBox {Padding=new Thickness(8,5,8,5),MinHeight=30};AutomationProperties.SetName(combo,label);RegisterName(name,combo);Grid.SetColumn(combo,1);row.Children.Add(combo);target.Children.Add(row);return combo;
  }
- ComboBox ColorRow(string label,string name,bool isCard){
+ ComboBox ColorRow(string label,string name,ColorSetting setting){
   var combo=ComboRow(label,name);combo.SelectedValuePath="Value";
-  foreach(var choice in NotificationColors.Choices())combo.Items.Add(choice);
+  foreach(var choice in NotificationColors.Choices(setting==ColorSetting.TextOutline))combo.Items.Add(choice);
   var template=new DataTemplate(typeof(NotificationColorChoice));
   var stack=new FrameworkElementFactory(typeof(StackPanel));stack.SetValue(StackPanel.OrientationProperty,Orientation.Horizontal);
   var swatch=new FrameworkElementFactory(typeof(Border));swatch.SetValue(FrameworkElement.WidthProperty,14.0);swatch.SetValue(FrameworkElement.HeightProperty,14.0);swatch.SetValue(FrameworkElement.MarginProperty,new Thickness(0,0,8,0));swatch.SetValue(Border.BorderThicknessProperty,new Thickness(1));swatch.SetValue(Border.BorderBrushProperty,Brush("#A6AFBC"));swatch.SetBinding(Border.BackgroundProperty,new Binding("Preview"));stack.AppendChild(swatch);
   var text=new FrameworkElementFactory(typeof(TextBlock));text.SetBinding(TextBlock.TextProperty,new Binding("Label"));stack.AppendChild(text);template.VisualTree=stack;combo.ItemTemplate=template;
   var row=(Grid)combo.Parent;row.ColumnDefinitions.Add(new ColumnDefinition {Width=GridLength.Auto});
   var choose=Button("その他…",name+"Custom");choose.Padding=new Thickness(8,5,8,5);choose.Margin=new Thickness(6,0,0,0);Grid.SetColumn(choose,2);row.Children.Add(choose);
-  choose.Click+=delegate {ChooseColor(isCard);};return combo;
+  choose.Click+=delegate {ChooseColor(setting);};return combo;
  }
  void SelectColor(ComboBox combo,string value){
   bool found=false;foreach(NotificationColorChoice choice in combo.Items)if(choice.Value==value){found=true;break;}
@@ -304,23 +375,24 @@ public sealed class ControlWindow : Window {
   combo.SelectedValue=value;
  }
  sealed class DialogOwner : System.Windows.Forms.IWin32Window {public IntPtr Handle {get;private set;}public DialogOwner(IntPtr handle){Handle=handle;}}
- void ChooseColor(bool isCard){
-  var settings=controller.Settings;var color=NotificationColors.Color(isCard?settings.CardColor:settings.TextColor,isCard?Color.FromRgb(245,247,250):Color.FromRgb(31,42,56));
+ void ChooseColor(ColorSetting setting){
+  var settings=controller.Settings;string selected=setting==ColorSetting.Card?settings.CardColor:setting==ColorSetting.Text?settings.TextColor:settings.TextOutlineColor;
+  var color=NotificationColors.Color(selected,setting==ColorSetting.Card?Color.FromRgb(245,247,250):Color.FromRgb(31,42,56));
   using(var dialog=new System.Windows.Forms.ColorDialog {FullOpen=true,SolidColorOnly=true,Color=System.Drawing.Color.FromArgb(color.R,color.G,color.B)}){
    if(dialog.ShowDialog(new DialogOwner(new WindowInteropHelper(this).Handle))!=System.Windows.Forms.DialogResult.OK)return;
    string value="#"+dialog.Color.R.ToString("X2")+dialog.Color.G.ToString("X2")+dialog.Color.B.ToString("X2");
-   Change(delegate(AppSettings s){if(isCard)s.CardColor=value;else s.TextColor=value;});
+   Change(delegate(AppSettings s){if(setting==ColorSetting.Card)s.CardColor=value;else if(setting==ColorSetting.Text)s.TextColor=value;else s.TextOutlineColor=value;});
   }
  }
  AppSettings ApplySettings(AppSettings s) {
   if(monitors==null||monitors.Length==0)monitors=NativeWindow.GetMonitors();if(monitors.Length==0)throw new InvalidOperationException("表示できる画面がありません。");
   var selected=monitors.FirstOrDefault(delegate(MonitorInfo m){return m.Id==s.MonitorId;});
   if(selected==null) {selected=monitors[0];if(!string.IsNullOrEmpty(s.MonitorId))Report("表示先が見つからないため、メイン画面に切り替えました。");s.MonitorId=selected.Id;}
-  AppSettings resolved=null;
   var targetCards=cards??new[]{card};
+  AppSettings resolved=null;
   for(int i=0;i<targetCards.Length;i++){
-   var result=targetCards[i].Apply(s.Copy(),selected);
-   if(i==0)resolved=result;
+   if(i==0)resolved=targetCards[i].Apply(s.Copy(),selected);
+   else targetCards[i].ApplyWhenShown(s.Copy(),selected);
   }
   return resolved;
  }
@@ -337,13 +409,13 @@ public sealed class ControlWindow : Window {
  }
  void ApplyLanguage(){
   UiLocalization.Language=CurrentLanguage;
-  syncing=true;try{UiLocalization.Apply(this,CurrentLanguage);LocalizeColorChoices(cardColor);LocalizeColorChoices(textColor);}finally{syncing=false;}
-  UpdateTrayLanguage();osNotifications.ApplyLanguage();
+  syncing=true;try{UiLocalization.Apply(this,CurrentLanguage);LocalizeColorChoices(cardColor);LocalizeColorChoices(textColor);LocalizeColorChoices(textOutlineColor);}finally{syncing=false;}
+  UpdateTrayLanguage();osNotifications.ApplyLanguage();UpdateModeControls();
  }
  void LocalizeColorChoices(ComboBox combo){
   string selected=combo.SelectedValue as string;combo.Items.Clear();
   bool selectedIncluded=false;
-  foreach(var choice in NotificationColors.Choices()){
+  foreach(var choice in NotificationColors.Choices(combo==textOutlineColor)){
    combo.Items.Add(new NotificationColorChoice(UiLocalization.Translate(choice.Label,CurrentLanguage),choice.Value));
    if(choice.Value==selected)selectedIncluded=true;
   }
@@ -359,6 +431,7 @@ public sealed class ControlWindow : Window {
  internal void ApplyTheme(DependencyObject root){
   var settings=controller.Settings;bool dark=settings.ThemeMode=="Dark"||settings.ThemeMode=="System"&&UiLocalization.IsSystemDark();
   UiLocalization.ApplyTheme(root,dark);
+  if(ReferenceEquals(root,this))UpdateModeControls();
  }
  void UserPreferenceChanged(object sender,UserPreferenceChangedEventArgs args){
   if(closed||controller.Settings.ThemeMode!="System")return;
@@ -368,19 +441,19 @@ public sealed class ControlWindow : Window {
   syncing=true;
   try {
    var s=controller.Settings;ApplyUiScale(s.UiScalePercent);cardWidth.Value=s.Width;cardHeight.Minimum=Math.Max(88,Math.Ceiling(card.MeasuredMinimumHeight/4)*4);cardHeight.Value=s.Height;cardFont.Value=s.FontSize;margin.Value=s.Margin;
+   widthValue.Text=s.Width.ToString("0");heightValue.Text=s.Height.ToString("0");fontValue.Text=s.FontSize.ToString("0");marginValue.Text=s.Margin.ToString("0");
    backdropMode.SelectedIndex=s.Mode==BackdropMode.Acrylic?0:s.Mode==BackdropMode.Mica?1:2;backdropStrength.SelectedIndex=(int)s.BackdropStrength;backdropStrength.IsEnabled=s.Mode==BackdropMode.Acrylic;UpdateBackdropStatus();
    cardFontFamily.SelectedItem=s.FontFamilyName;roundedCorners.IsChecked=s.RoundedCorners;
-   SelectColor(cardColor,s.CardColor);SelectColor(textColor,s.TextColor);
+   SelectColor(cardColor,s.CardColor);SelectColor(textColor,s.TextColor);SelectColor(textOutlineColor,s.TextOutlineColor);
    displaySeconds.Value=s.DisplaySeconds;displaySecondsValue.Text=s.DisplaySeconds.ToString("0")+(s.Language=="English"?" sec":"秒");
    imageSize.Value=s.ImageSize;imageSizeValue.Text=s.ImageSize.ToString("0");
    imagePosition.SelectedIndex=s.ImagePosition=="Left"?1:0;
-   widthValue.Text=s.Width.ToString("0");heightValue.Text=s.Height.ToString("0");fontValue.Text=s.FontSize.ToString("0");marginValue.Text=s.Margin.ToString("0");
    if(!ReferenceEquals(display.ItemsSource,monitors))display.ItemsSource=monitors;var selMon=monitors.FirstOrDefault(delegate(MonitorInfo m){return m.Id==s.MonitorId;});if(!ReferenceEquals(display.SelectedItem,selMon))display.SelectedItem=selMon;if(position.SelectedIndex!=(int)s.Corner)position.SelectedIndex=(int)s.Corner;if(sound.SelectedIndex!=(int)s.SoundKind)sound.SelectedIndex=(int)s.SoundKind;
    startWithWindows.IsChecked=s.StartWithWindows;startMinimizedToTray.IsChecked=s.StartMinimizedToTray;
-   uiScale.SelectedIndex=(int)((s.UiScalePercent-100)/10);
+   uiScale.Value=s.UiScalePercent;uiScaleValue.Text=s.UiScalePercent.ToString("0")+"%";
    themeMode.SelectedIndex=s.ThemeMode=="Light"?1:s.ThemeMode=="Dark"?2:0;language.SelectedIndex=s.Language=="English"?1:0;
    highContrast.IsChecked=s.HighContrast;
-   preview.IsEnabled=!IsPaused&&s.SoundKind!=SoundKind.None;showSample.IsEnabled=!IsPaused;fileName.Text=UiLocalization.Translate(s.SoundKind==SoundKind.File?(string.IsNullOrEmpty(s.SoundPath)?"WAV を選び直してください":Path.GetFileName(s.SoundPath)):s.SoundKind==SoundKind.Standard?"やわらかなチャイム":"音を鳴らしません",CurrentLanguage);fileName.ToolTip=s.SoundKind==SoundKind.File?s.SoundPath:null;
+   preview.IsEnabled=!IsPaused&&s.SoundKind!=SoundKind.None;fileName.Text=UiLocalization.Translate(s.SoundKind==SoundKind.File?(string.IsNullOrEmpty(s.SoundPath)?"WAV を選び直してください":Path.GetFileName(s.SoundPath)):s.SoundKind==SoundKind.Standard?"やわらかなチャイム":"音を鳴らしません",CurrentLanguage);fileName.ToolTip=s.SoundKind==SoundKind.File?s.SoundPath:null;
    RefreshHistoryControls();
   }finally{syncing=false;}
  }

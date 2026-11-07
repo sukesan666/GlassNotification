@@ -11,7 +11,7 @@ public static partial class Tests {
    if(mode!="UI") Core();
    if(mode!="Core") Ui();
    Console.WriteLine("PASS: "+count+" assertions ("+mode+")"); return 0;
-  } catch(Exception e) { Console.Error.WriteLine(e); return 1; }
+  } catch(Exception e) { File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"test-failure.txt"),e.ToString()); Console.WriteLine("FAIL: "+e); Console.Error.WriteLine(e); return 1; }
  }
  public static string Root;
  static void Core() {
@@ -30,6 +30,7 @@ public static partial class Tests {
    ImageSizeSettingsTests(path);
    ImagePositionSettingsTests(path);
    BackdropSettingsTests(path);
+   TextOutlineSettingsTests(path);
    File.WriteAllText(path,"bad json"); s=SettingsStore.Load(path,out warning); Check(s.Width==360&&warning!=null,"corrupt settings");
    File.WriteAllText(path,"{\"Width\":480}"); s=SettingsStore.Load(path,out warning); Check(s.Width==480&&s.FontSize==13,"missing fields preserve defaults");
    Check(s.GlassEffectEnabled,"old settings without glass flag keep existing appearance");

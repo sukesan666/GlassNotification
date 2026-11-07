@@ -20,6 +20,8 @@ public static partial class Tests {
   window.Show();Pump(70);
   Check(service.AppliedMode==BackdropMode.Acrylic&&device.LastType==3,"Acrylic selects Desktop Acrylic on the window target");
   service.SetStrength(BackdropStrength.Strong);Check(device.LastStrength==BackdropStrength.Strong&&service.Strength==BackdropStrength.Strong,"Acrylic strength is forwarded to the native backdrop");
+  int unchangedCalls=device.Calls;service.SetStrength(BackdropStrength.Strong);
+  Check(device.Calls==unchangedCalls,"unchanged strength does not reconfigure the native backdrop during unrelated settings changes");
   Check(((SolidColorBrush)root.Background).Color.A<255&&window.Background==Brushes.Transparent,"root tint is configured translucent; this fake-native test does not prove visible material");
   Check(window.Opacity==1&&!window.AllowsTransparency,"keep foreground rendering and window alpha intact");
   for(int i=0;i<10;i++){service.SetMode(BackdropMode.Mica);service.SetMode(BackdropMode.Off);}

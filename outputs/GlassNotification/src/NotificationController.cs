@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Windows.Threading;
 namespace Glass {
 public interface IScheduler {IDisposable Schedule(TimeSpan delay,Action callback);}
+public enum OperationMode {Settings,Active}
 public sealed class DispatcherScheduler : IScheduler {
  sealed class Ticket : IDisposable {public DispatcherTimer Timer;public void Dispose(){Timer.Stop();}}
  public IDisposable Schedule(TimeSpan delay,Action callback) {
@@ -29,11 +30,13 @@ public sealed class NotificationController : IDisposable {
  readonly Func<AppSettings,AppSettings> apply;readonly Action<AppSettings> save;readonly Action<string> report;
  bool disposed;
  public bool IsPaused {get;private set;}
+ public OperationMode Mode {get;private set;}
  public AppSettings Settings {get;private set;}
+ public Func<SystemNotification> SampleNotificationProvider {get;set;}
  public int ActiveCardCount {get{return activeSlots.Count;}}
  public bool HasAvailableSlot {
   get{
-   if(disposed||IsPaused)return false;
+   if(disposed||IsPaused||Mode!=OperationMode.Active)return false;
    if(activeSlots.Count<slots.Length)return true;
    return HasOnlyPreviewCards();
   }
@@ -45,13 +48,29 @@ public sealed class NotificationController : IDisposable {
   int count=Math.Min(MaximumVisibleCards,cards.Count);
   slots=new CardSlot[count];
   for(int i=0;i<count;i++)slots[i]=new CardSlot {View=cards[i]};
-  sound=audio;scheduler=timer;apply=normalize;save=persist;report=reportError;Settings=new AppSettings();
+  sound=audio;scheduler=timer;apply=normalize;save=persist;report=reportError;Settings=new AppSettings();Mode=OperationMode.Active;
  }
  public void Initialize(AppSettings value) {if(!disposed)Settings=apply(value.Copy());}
+ static void ShowOnView(INotificationView view,bool stationary){
+  var staticView=stationary?view as IStaticNotificationView:null;
+  if(staticView!=null)staticView.ShowStaticCard();
+  else view.ShowCard();
+ }
+ SystemNotification GetSampleNotification(){return SampleNotificationProvider!=null?SampleNotificationProvider():null;}
  bool HasOnlyPreviewCards(){
   if(activeSlots.Count==0)return false;
   for(int i=0;i<activeSlots.Count;i++)if(!activeSlots[i].IsSample&&!activeSlots[i].IsPreview)return false;
   return true;
+ }
+ void HideAllSlots(){
+  for(int i=0;i<slots.Length;i++){
+   slots[i].CancelDeadline();
+   slots[i].Notification=null;slots[i].IsSample=false;slots[i].IsPreview=false;
+   var stackable=slots[i].View as IStackableNotificationView;
+   if(stackable!=null)stackable.SetStackOffset(0);
+   slots[i].View.HideCard();
+  }
+  activeSlots.Clear();
  }
  void ClearSlotsExcept(CardSlot keep){
   for(int i=0;i<slots.Length;i++){
@@ -64,6 +83,48 @@ public sealed class NotificationController : IDisposable {
    if(stackable!=null)stackable.SetStackOffset(0);
    if(wasActive)slot.View.HideCard();
   }
+ }
+ public void SetMode(OperationMode value){
+  if(disposed)return;
+  if(!Enum.IsDefined(typeof(OperationMode),value))value=OperationMode.Active;
+  if(Mode==value)return;
+  Mode=value;
+  if(value==OperationMode.Settings){
+   if(IsPaused)return;
+   ClearSlotsExcept(slots[0]);
+   var slot=slots[0];
+   slot.CancelDeadline();
+   if(!activeSlots.Contains(slot)||slot.Notification==null||slot.IsSample){
+    var sample=GetSampleNotification();
+    slot.Notification=sample;slot.IsSample=true;slot.IsPreview=true;
+    var content=slot.View as INotificationContentView;
+    if(content!=null)content.SetNotification(sample);
+    if(!activeSlots.Contains(slot))activeSlots.Add(slot);
+   }else{
+    slot.IsPreview=true;
+   }
+   try{
+    Settings=apply(Settings.Copy());
+    UpdateStackLayout();
+    ShowOnView(slot.View,true);
+   }catch(InvalidOperationException e){
+    activeSlots.Remove(slot);
+    UpdateStackLayout();
+    report(e.Message);
+   }
+   return;
+  }
+  if(HasOnlyPreviewCards())HideAllSlots();
+  try{
+   Settings=apply(Settings.Copy());
+   if(!IsPaused&&activeSlots.Count>0){
+    UpdateStackLayout();
+    for(int i=0;i<activeSlots.Count;i++){
+     ShowOnView(activeSlots[i].View,false);
+     StartSlotDeadline(activeSlots[i],Settings.DisplaySeconds);
+    }
+   }
+  }catch(InvalidOperationException e){report(e.Message);}
  }
  CardSlot AcquireSlot(bool isPreview){
   if(!isPreview&&HasOnlyPreviewCards()){
@@ -103,34 +164,47 @@ public sealed class NotificationController : IDisposable {
   if(disposed||IsPaused)return;
   ClearSlotsExcept(slots[0]);
   activeSlots.Clear();
-  ShowOnSlot(slots[0],null,true,true,playSound);
+  ShowOnSlot(slots[0],GetSampleNotification(),true,true,playSound);
  }
  public void ShowNotification(SystemNotification value){ShowNotification(value,true);}
  public void ShowNotification(SystemNotification value,bool playSound){
   if(disposed||IsPaused||value==null)return;
+  if(Mode==OperationMode.Settings){
+   ClearSlotsExcept(slots[0]);
+   activeSlots.Clear();
+   ShowOnSlot(slots[0],value,false,true,playSound);
+   return;
+  }
   var slot=AcquireSlot(false);
   ShowOnSlot(slot,value,false,false,playSound);
  }
  internal void ShowPreviewNotification(SystemNotification value,bool playSound){
   if(disposed||IsPaused||value==null)return;
+  if(Mode==OperationMode.Settings){
+   ClearSlotsExcept(slots[0]);
+   activeSlots.Clear();
+   ShowOnSlot(slots[0],value,false,true,playSound);
+   return;
+  }
   var slot=AcquireSlot(true);
   ShowOnSlot(slot,value,false,true,playSound);
  }
  void ShowOnSlot(CardSlot slot,SystemNotification value,bool isSample,bool isPreview,bool playSound) {
   if(disposed||IsPaused)return;
   try {
+   bool stationary=Mode==OperationMode.Settings;
    slot.CancelDeadline();
    slot.Notification=value;
    slot.IsSample=isSample;
-   slot.IsPreview=isPreview;
+   slot.IsPreview=isPreview||stationary;
    var content=slot.View as INotificationContentView;
    if(content!=null)content.SetNotification(value);
    if(!activeSlots.Contains(slot))activeSlots.Add(slot);
    Settings=apply(Settings.Copy());
    UpdateStackLayout();
-   slot.View.ShowCard();
+   ShowOnView(slot.View,stationary);
    if(playSound)sound.Play(Settings,report);
-   StartSlotDeadline(slot,Settings.DisplaySeconds+NotificationWindow.EntryDurationSeconds);
+   if(!stationary)StartSlotDeadline(slot,Settings.DisplaySeconds+NotificationWindow.EntryDurationSeconds);
   }catch(InvalidOperationException e){
    activeSlots.Remove(slot);
    UpdateStackLayout();
@@ -142,17 +216,34 @@ public sealed class NotificationController : IDisposable {
   try {
    bool changedSound=Settings.SoundKind!=value.SoundKind||Settings.SoundPath!=value.SoundPath;
    var resolved=apply(value.Copy());if(changedSound)sound.Stop();Settings=resolved;save(Settings.Copy());
-   if(!IsPaused){
-    if(activeSlots.Count==0){
-     var slot=slots[0];
-     slot.IsSample=true;slot.IsPreview=true;
+   if(IsPaused)return;
+   if(Mode==OperationMode.Settings){
+    ClearSlotsExcept(slots[0]);
+    var slot=slots[0];
+    slot.CancelDeadline();
+    if(!activeSlots.Contains(slot)){
+     var sample=GetSampleNotification();
+     slot.Notification=sample;slot.IsSample=true;slot.IsPreview=true;
+     var content=slot.View as INotificationContentView;
+     if(content!=null)content.SetNotification(sample);
      activeSlots.Add(slot);
     }
     UpdateStackLayout();
-    for(int i=0;i<activeSlots.Count;i++){
-     activeSlots[i].View.ShowCard();
-     StartSlotDeadline(activeSlots[i],Settings.DisplaySeconds);
-    }
+    ShowOnView(slot.View,true);
+    return;
+   }
+   if(activeSlots.Count==0){
+    var slot=slots[0];
+    var sample=GetSampleNotification();
+    slot.Notification=sample;slot.IsSample=true;slot.IsPreview=true;
+    var content=slot.View as INotificationContentView;
+    if(content!=null)content.SetNotification(sample);
+    activeSlots.Add(slot);
+   }
+   UpdateStackLayout();
+   for(int i=0;i<activeSlots.Count;i++){
+    ShowOnView(activeSlots[i].View,false);
+    StartSlotDeadline(activeSlots[i],Settings.DisplaySeconds);
    }
   }catch(InvalidOperationException e){report(e.Message);}
  }
@@ -181,6 +272,13 @@ public sealed class NotificationController : IDisposable {
    if(ReferenceEquals(slot.View,target)){
     slot.CancelDeadline();
     sound.Stop();
+    if(Mode==OperationMode.Settings){
+     activeSlots.Remove(slot);
+     slot.Notification=null;slot.IsSample=false;slot.IsPreview=false;
+     slot.View.HideCard();
+     UpdateStackLayout();
+     return;
+    }
     long fadeGen=slot.Generation;
     slot.View.FadeOut(delegate {
      if(!disposed&&fadeGen==slot.Generation){
@@ -205,15 +303,27 @@ public sealed class NotificationController : IDisposable {
   if(disposed||IsPaused==value)return;
   IsPaused=value;
   if(value) {
-   for(int i=0;i<slots.Length;i++){
-    slots[i].CancelDeadline();
-    slots[i].Notification=null;slots[i].IsSample=false;slots[i].IsPreview=false;
-    var stackable=slots[i].View as IStackableNotificationView;
-    if(stackable!=null)stackable.SetStackOffset(0);
-    slots[i].View.HideCard();
-   }
-   activeSlots.Clear();
+   HideAllSlots();
    sound.Stop();
+  }else if(Mode==OperationMode.Settings){
+   var slot=slots[0];
+   slot.CancelDeadline();
+   if(!activeSlots.Contains(slot)){
+    var sample=GetSampleNotification();
+    slot.Notification=sample;slot.IsSample=true;slot.IsPreview=true;
+    var content=slot.View as INotificationContentView;
+    if(content!=null)content.SetNotification(sample);
+    activeSlots.Add(slot);
+   }
+   try{
+    Settings=apply(Settings.Copy());
+    UpdateStackLayout();
+    ShowOnView(slot.View,true);
+   }catch(InvalidOperationException e){
+    activeSlots.Remove(slot);
+    UpdateStackLayout();
+    report(e.Message);
+   }
   }
  }
  public void Reset(){if(disposed)return;sound.Stop();UpdateSettings(new AppSettings());}

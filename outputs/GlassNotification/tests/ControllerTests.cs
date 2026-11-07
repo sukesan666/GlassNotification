@@ -7,13 +7,13 @@ public static partial class Tests {
   public List<Job> Jobs=new List<Job>();
   public IDisposable Schedule(TimeSpan delay,Action callback){var job=new Job {Delay=delay,Callback=callback};Jobs.Add(job);return job;}
  }
- sealed class ViewLog : INotificationView,INotificationContentView,IStackableNotificationView {
-  public int Shows,Hides,Fades;public SystemNotification Notification;public double HeightDip=88;
+ sealed class ViewLog : INotificationView,IStaticNotificationView,INotificationContentView,IStackableNotificationView {
+  public int Shows,StaticShows,Hides,Fades;public SystemNotification Notification;public double HeightDip=88;
   public double CardHeightDip {get{return HeightDip;}}
   public double StackOffsetDip {get;private set;}
   public void SetStackOffset(double offsetDip){StackOffsetDip=offsetDip;}
   public void SetNotification(SystemNotification value){Notification=value;}
-  public void ShowCard(){Shows++;}public void HideCard(){Hides++;}public void FadeOut(Action completed){Fades++;completed();}
+  public void ShowCard(){Shows++;}public void ShowStaticCard(){StaticShows++;}public void HideCard(){Hides++;}public void FadeOut(Action completed){Fades++;completed();}
  }
  sealed class SoundLog : ISoundService {public int Plays,Stops,Disposals;public void Play(AppSettings s,Action<string> report){Plays++;}public void Stop(){Stops++;}public void Dispose(){Disposals++;}}
  static partial void ControllerTests() {
@@ -63,6 +63,14 @@ public static partial class Tests {
   Check(stackController.ActiveCardCount==2&&stackController.HasAvailableSlot&&v1.StackOffsetDip==0&&v2.StackOffsetDip==98,"when the first card fades out, remaining stacked cards shift toward the corner");
   stackController.ShowNotification(n4,false);
   Check(stackController.ActiveCardCount==3&&ReferenceEquals(v0.Notification,n4)&&v1.StackOffsetDip==0&&v2.StackOffsetDip==98&&v0.StackOffsetDip==196,"freed card slot is reused at the end of the stack for the next arriving notification");
+  // Two-mode tests: Settings (stationary card) and Active
+  int animatedShowsBefore=v0.Shows;int staticShowsBefore=v0.StaticShows;int jobsBefore=stackTimer.Jobs.Count;
+  stackController.SetMode(OperationMode.Settings);
+  Check(stackController.Mode==OperationMode.Settings&&stackController.ActiveCardCount==1&&v0.StaticShows==staticShowsBefore+1&&v0.Shows==animatedShowsBefore&&stackTimer.Jobs.Count==jobsBefore,"settings mode displays a stationary card without slide animation or countdown timer");
+  stackController.UpdateSettings(new AppSettings {Width=400});
+  Check(v0.StaticShows==staticShowsBefore+2&&v0.Shows==animatedShowsBefore&&stackTimer.Jobs.Count==jobsBefore,"changing settings in settings mode updates the stationary card in place without scheduling fade-out");
+  stackController.SetMode(OperationMode.Active);
+  Check(stackController.Mode==OperationMode.Active&&stackController.ActiveCardCount==0&&stackController.HasAvailableSlot,"switching from settings mode to active mode clears the stationary preview card and enables normal notifications");
   stackController.Dispose();
   controller.Dispose();
  }

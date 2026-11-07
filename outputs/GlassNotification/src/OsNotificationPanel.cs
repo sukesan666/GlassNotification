@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Diagnostics;
 using System.Windows;
@@ -20,7 +20,8 @@ public sealed class OsNotificationPanel : StackPanel,IDisposable {
   if(!source.TryAttachImages(imageWaiting)&&DateTime.UtcNow<imageDeadline)return null;
   var result=imageWaiting;imageWaiting=null;return result;
  }
- SystemNotificationSource source;FileStream ownership;readonly string ownershipPath;bool active,connected,disposed,registering,syncing,paused;DateTime nextCard,nextPreferences;
+ SystemNotificationSource source;FileStream ownership;readonly string ownershipPath;bool active,connected,disposed,registering,syncing,paused,pollingSuspended;DateTime nextCard,nextPreferences;
+ internal bool IsPollingSuspended {get{return pollingSuspended;}}
  public OsNotificationPanel(Window window,NotificationController target):this(window,target,SystemNotificationSource.Register,null){}
  public OsNotificationPanel(Window window,NotificationController target,Func<bool> registerAction):this(window,target,registerAction,null){}
  internal OsNotificationPanel(Window window,NotificationController target,Func<bool> registerAction,INotificationSenderFilterStore filters){owner=window;controller=target;registrar=registerAction;
@@ -56,12 +57,23 @@ public sealed class OsNotificationPanel : StackPanel,IDisposable {
  void Start(){if(disposed||!Acquire())return;try{
    NotificationResourceCache.EnsureDefaultWatcher();
    if(preferences.Recoverable){preferences.Restore();SetStatus("通知アクセスを確認しています。");}
-   source=new SystemNotificationSource();int access=source.Access(true);active=true;connected=false;feed.Reset();imageWaiting=null;nextCard=DateTime.MinValue;timer.Start();
+   source=new SystemNotificationSource();int access=source.Access(true);active=true;connected=false;feed.Reset();imageWaiting=null;nextCard=DateTime.MinValue;
+   if(!pollingSuspended||registering)timer.Start();
    SetStatus(access==-1?"Windowsの「設定 > システム > 通知」で通知へのアクセスを許可してください。":"通知へのアクセスを確認しています。");UpdateControls();
   }catch(Exception e){if(source!=null){source.Dispose();source=null;}Error("通知の連動を開始できませんでした",e);UpdateControls();}}
  internal void StartIntegration(){if(disposed||active||registering)return;Start();}
+ internal void SetPollingSuspended(bool value){
+  if(disposed||pollingSuspended==value)return;
+  pollingSuspended=value;
+  if(pollingSuspended){
+   if(!registering)timer.Stop();
+  }else{
+   if(active||registering)timer.Start();
+  }
+ }
  void Tick(){if(disposed)return;try{
-   if(registering){if(registrar()){registering=false;timer.Stop();SetStatus("登録しました。連動版を開きます。");LaunchLinkedApp();UpdateControls();}}
+   if(registering){if(registrar()){registering=false;if(pollingSuspended||!active)timer.Stop();SetStatus("登録しました。連動版を開きます。");LaunchLinkedApp();UpdateControls();}if(pollingSuspended||!active)return;}
+   if(pollingSuspended){timer.Stop();return;}
    if(!active||source==null)return;int access=source.Access(false);if(access==-1)return;if(access!=1){Stop("通知アクセスが許可されていないため停止しました。Chromeの「通知アクセス」設定を確認してください。");return;}
    var snapshot=source.Read();if(snapshot!=null){
     if(imageWaiting!=null){bool present=false;foreach(var item in snapshot){if(item.Id==imageWaiting.Id){present=true;if(imageWaiting.AppIcon==null&&item.AppIcon!=null)imageWaiting.AppIcon=item.AppIcon;}}if(!present||!senderFilters.IsAllowed(imageWaiting.SenderId))imageWaiting=null;}

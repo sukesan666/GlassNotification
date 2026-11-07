@@ -20,6 +20,7 @@ public sealed class AppSettings {
  public string FontFamilyName {get;set;}
  public bool RoundedCorners {get;set;}
  public string CardColor {get;set;} public string TextColor {get;set;}
+ public string TextOutlineColor {get;set;}
  public double DisplaySeconds {get;set;}
  public double ImageSize {get;set;}
  public string ImagePosition {get;set;}
@@ -33,14 +34,14 @@ public sealed class AppSettings {
   get {BackdropMode mode;return Enum.TryParse(Backdrop,true,out mode)&&Enum.IsDefined(typeof(BackdropMode),mode)?mode:BackdropMode.Off;}
   set {Backdrop=Enum.IsDefined(typeof(BackdropMode),value)?value.ToString():"Off";}
  }
- public AppSettings() { Width=360; Height=88; FontSize=13; Margin=20; MonitorId=""; SoundPath=""; GlassEffectEnabled=true;FontFamilyName=NotificationFonts.Default;RoundedCorners=true;CardColor=TextColor=NotificationColors.Default;DisplaySeconds=4;ImageSize=56;ImagePosition="Right";StartWithWindows=false;StartMinimizedToTray=false;HighContrast=false;BackdropStrength=BackdropStrength.Standard;UiScalePercent=100;ThemeMode="System";Language="Japanese"; }
+ public AppSettings() { Width=360; Height=88; FontSize=13; Margin=20; MonitorId=""; SoundPath=""; GlassEffectEnabled=true;FontFamilyName=NotificationFonts.Default;RoundedCorners=true;CardColor=TextColor=TextOutlineColor=NotificationColors.Default;DisplaySeconds=4;ImageSize=56;ImagePosition="Right";StartWithWindows=false;StartMinimizedToTray=false;HighContrast=false;BackdropStrength=BackdropStrength.Standard;UiScalePercent=100;ThemeMode="System";Language="Japanese"; }
  public AppSettings Copy() { return (AppSettings)MemberwiseClone(); }
  public static double Clamp(double v,double min,double max,double step) {
   if(double.IsNaN(v)||double.IsInfinity(v)) return min;
   return Math.Max(min,Math.Min(max,min+Math.Round((v-min)/step)*step));
  }
  public AppSettings Normalize() {
-  var s=Copy();s.Mode=s.Mode;s.SettingsVersion=9;s.FontFamilyName=NotificationFonts.Resolve(s.FontFamilyName);s.CardColor=NotificationColors.Normalize(s.CardColor);s.TextColor=NotificationColors.Normalize(s.TextColor);if(!Enum.IsDefined(typeof(BackdropStrength),s.BackdropStrength))s.BackdropStrength=BackdropStrength.Standard;s.UiScalePercent=Clamp(s.UiScalePercent,100,150,10);s.ThemeMode=NormalizeChoice(s.ThemeMode,"System","System","Light","Dark");s.Language=NormalizeChoice(s.Language,"Japanese","Japanese","English");s.Width=Clamp(s.Width,280,600,10); s.Height=Clamp(s.Height,88,240,4);
+  var s=Copy();s.Mode=s.Mode;s.SettingsVersion=10;s.FontFamilyName=NotificationFonts.Resolve(s.FontFamilyName);s.CardColor=NotificationColors.Normalize(s.CardColor);s.TextColor=NotificationColors.Normalize(s.TextColor);s.TextOutlineColor=NotificationColors.Normalize(s.TextOutlineColor);if(!Enum.IsDefined(typeof(BackdropStrength),s.BackdropStrength))s.BackdropStrength=BackdropStrength.Standard;s.UiScalePercent=Clamp(s.UiScalePercent,100,150,10);s.ThemeMode=NormalizeChoice(s.ThemeMode,"System","System","Light","Dark");s.Language=NormalizeChoice(s.Language,"Japanese","Japanese","English");s.Width=Clamp(s.Width,280,600,10); s.Height=Clamp(s.Height,88,240,4);
   s.DisplaySeconds=double.IsNaN(s.DisplaySeconds)||double.IsInfinity(s.DisplaySeconds)?4:Clamp(s.DisplaySeconds,1,60,1);
   s.ImageSize=double.IsNaN(s.ImageSize)||double.IsInfinity(s.ImageSize)?56:Clamp(s.ImageSize,24,128,4);
   s.ImagePosition=NormalizeChoice(s.ImagePosition,"Right","Right","Left");
@@ -77,7 +78,7 @@ public static class SettingsStore {
    bool rounded;
    if(!bool.TryParse(Convert.ToString(defaults["RoundedCorners"]),out rounded)){rounded=true;warning="角丸の設定が不正なため、オンで起動しました。";}
    defaults["RoundedCorners"]=rounded;
-   foreach(string field in new[]{"CardColor","TextColor"}){
+   foreach(string field in new[]{"CardColor","TextColor","TextOutlineColor"}){
     string requested=defaults[field] as string;string resolved=NotificationColors.Normalize(requested);
     if(resolved==NotificationColors.Default&&!string.Equals(requested,resolved,StringComparison.OrdinalIgnoreCase))warning="通知の色の設定が不正なため、標準の色に戻しました。";
     defaults[field]=resolved;
@@ -109,7 +110,15 @@ public static class SettingsStore {
   warning=null; string temp=path+"."+Guid.NewGuid().ToString("N")+".tmp";
   try {
    File.WriteAllText(temp,new JavaScriptSerializer().Serialize(settings.Normalize()),new UTF8Encoding(false));
-   if(File.Exists(path)) File.Replace(temp,path,null); else File.Move(temp,path);
+   for(int retry=0;;retry++){
+    try {
+     if(File.Exists(path)) File.Replace(temp,path,null); else File.Move(temp,path);
+     break;
+    } catch(IOException) {
+     if(retry>=10) throw;
+     System.Threading.Thread.Sleep(25);
+    }
+   }
    return true;
   } catch(Exception e) {
    if(!(e is IOException || e is UnauthorizedAccessException || e is ArgumentException || e is NotSupportedException)) throw;

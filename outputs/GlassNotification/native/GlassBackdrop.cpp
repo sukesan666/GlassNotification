@@ -202,11 +202,6 @@ static LRESULT CALLBACK SlideWindowProc(HWND hwnd,UINT message,WPARAM w,LPARAM l
  if(!slide)return DefWindowProcW(hwnd,message,w,l);
  if(message==WM_MOUSEACTIVATE)return MA_NOACTIVATE;
  if(message==WM_NCHITTEST){POINT p{GET_X_LPARAM(l),GET_Y_LPARAM(l)};ScreenToClient(hwnd,&p);return slide->PointOnCard(p)?HTCLIENT:HTTRANSPARENT;}
- if(message==WM_MOUSEMOVE){
-  TRACKMOUSEEVENT track{sizeof(track),TME_LEAVE,hwnd,0};TrackMouseEvent(&track);
-  PostMessageW(slide->owner,WM_APP+0x54,slide->PointOnCard(POINT{GET_X_LPARAM(l),GET_Y_LPARAM(l)})?1:0,0);return 0;
- }
- if(message==WM_MOUSELEAVE){PostMessageW(slide->owner,WM_APP+0x54,0,0);return 0;}
  if(message==WM_LBUTTONUP){
   POINT p{GET_X_LPARAM(l),GET_Y_LPARAM(l)};
   if(slide->PointOnCard(p))PostMessageW(slide->owner,WM_APP+0x53,0,MAKELPARAM(static_cast<short>(p.x-slide->X()),static_cast<short>(p.y)));

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
@@ -10,18 +11,20 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 namespace Glass {
 public interface INotificationView {void ShowCard(); void HideCard(); void FadeOut(Action completed);}
+public interface IStaticNotificationView {void ShowStaticCard();}
 public interface INotificationContentView {void SetNotification(SystemNotification value);}
 public interface IStackableNotificationView {
  double CardHeightDip {get;}
  double StackOffsetDip {get;}
  void SetStackOffset(double offsetDip);
 }
-public sealed class NotificationWindow : Window,INotificationView,INotificationContentView,IStackableNotificationView {
+public sealed class NotificationWindow : Window,INotificationView,IStaticNotificationView,INotificationContentView,IStackableNotificationView {
  internal const double EntryDurationSeconds=.66,ExitDurationSeconds=.33;
  internal const int AnimationFramesPerSecond=120;
- readonly Border surface; readonly TextBlock appName,title,body; readonly StackPanel text;
+ struct LineMetrics {public double App,Title,Body;}
+ static readonly Dictionary<string,LineMetrics> lineMetricsCache=new Dictionary<string,LineMetrics>(StringComparer.Ordinal);
+ readonly Border surface; readonly NotificationTextBlock appName,title,body; readonly StackPanel text;
  readonly Image thumbnail;bool circleImage;SystemNotification currentNotification;
- readonly Button closeButton;readonly Canvas closeOverlay;
  IntPtr handle; MonitorInfo monitor; Rect pixels; AppSettings settings; DispatcherTimer animation; EventHandler renderFrame;
  readonly WindowBackdropService backdrop;HwndSource source;
  ICompositionSlide compositionSlide;Action compositionCompleted;bool compositionEntering;
@@ -29,53 +32,36 @@ public sealed class NotificationWindow : Window,INotificationView,INotificationC
  internal Func<CompositionSlideRequest,ICompositionSlide> CompositionSlideFactory;
  DispatcherOperation contentRefresh;
  double stackOffsetDip;
+ bool highContrastEnabled;
+ double measuredMinimumHeight;
  public double CardHeightDip {get{return Height>0?Height:(settings==null?88:settings.Height);}}
  public double StackOffsetDip {get{return stackOffsetDip;}}
  public Rect TargetPixels {get{return pixels;}}
- public bool ForceFallback {get;set;} public bool BackdropEnabled {get{return !HighContrastEnabled&&backdrop.AppliedMode!=BackdropMode.Off;}}
- public bool HighContrastEnabled {get;private set;}
+ public bool ForceFallback {get;set;}
+ public bool BackdropEnabled {get{return !HighContrastEnabled&&(deferredSettings!=null?(!ForceFallback&&deferredSettings.Mode!=BackdropMode.Off):backdrop.AppliedMode!=BackdropMode.Off);}}
+ public bool HighContrastEnabled {get{return deferredSettings!=null?deferredSettings.HighContrast:highContrastEnabled;}}
  public string BackdropStatus {get{return backdrop.Status;}}
  public event EventHandler BackdropChanged;
  public event Action<SystemNotification> NotificationClicked;
- public event Action NotificationDismissRequested;
- public double MeasuredMinimumHeight {get;private set;} public int BodyLines {get;private set;}
+ public double MeasuredMinimumHeight {get{return deferredSettings!=null?EstimateMinimumHeight(deferredSettings):measuredMinimumHeight;}}
+ public int BodyLines {get;private set;}
  public double EntryOffset {get;private set;}
  public event EventHandler DpiEnvironmentChanged;
  public NotificationWindow() {
   Title="Glass Notification Card"; WindowStyle=WindowStyle.None; ResizeMode=ResizeMode.NoResize;
   ShowInTaskbar=false; ShowActivated=false; Topmost=true; Background=Brushes.Transparent;
   FontFamily=new FontFamily("Yu Gothic UI"); UseLayoutRounding=true; Cursor=Cursors.Hand;
-  surface=new Border {Background=new SolidColorBrush(Color.FromRgb(241,245,250)),CornerRadius=new CornerRadius(18),BorderThickness=new Thickness(1),BorderBrush=Brushes.Transparent,Padding=new Thickness(15,10,15,10),Cursor=Cursors.Hand};
+  surface=new Border {Background=new SolidColorBrush(Color.FromRgb(241,245,250)),CornerRadius=new CornerRadius(18),BorderThickness=new Thickness(0),BorderBrush=Brushes.Transparent,Padding=new Thickness(16,11,16,11),Cursor=Cursors.Hand};
   var grid=new Grid();grid.ColumnDefinitions.Add(new ColumnDefinition {Width=GridLength.Auto});grid.ColumnDefinitions.Add(new ColumnDefinition());grid.ColumnDefinitions.Add(new ColumnDefinition {Width=GridLength.Auto});
   grid.Children.Add(new Border {Visibility=Visibility.Collapsed});
   text=new StackPanel {VerticalAlignment=VerticalAlignment.Center}; Grid.SetColumn(text,1);
-  appName=new TextBlock {Text="メッセージ",Foreground=new SolidColorBrush(Color.FromRgb(102,111,124)),TextTrimming=TextTrimming.CharacterEllipsis,TextWrapping=TextWrapping.NoWrap,Margin=new Thickness(0,0,0,2)};
-  title=new TextBlock {Text="デザインの時間",FontWeight=FontWeights.SemiBold,Foreground=new SolidColorBrush(Color.FromRgb(31,42,56)),TextTrimming=TextTrimming.CharacterEllipsis,TextWrapping=TextWrapping.NoWrap,Margin=new Thickness(0,0,0,2)};
-  body=new TextBlock {Text="ちょっと気分のいい通知を、ここに。",Foreground=new SolidColorBrush(Color.FromRgb(67,78,93)),TextWrapping=TextWrapping.Wrap,TextTrimming=TextTrimming.CharacterEllipsis};
+  appName=new NotificationTextBlock {Text="メッセージ",Foreground=new SolidColorBrush(Color.FromRgb(102,111,124)),TextTrimming=TextTrimming.CharacterEllipsis,TextWrapping=TextWrapping.NoWrap,Margin=new Thickness(0,0,0,2)};
+  title=new NotificationTextBlock {Text="デザインの時間",FontWeight=FontWeights.SemiBold,Foreground=new SolidColorBrush(Color.FromRgb(31,42,56)),TextTrimming=TextTrimming.CharacterEllipsis,TextWrapping=TextWrapping.NoWrap,Margin=new Thickness(0,0,0,2)};
+  body=new NotificationTextBlock {Text="ちょっと気分のいい通知を、ここに。",Foreground=new SolidColorBrush(Color.FromRgb(67,78,93)),TextWrapping=TextWrapping.Wrap,TextTrimming=TextTrimming.CharacterEllipsis};
   text.Children.Add(appName);text.Children.Add(title);text.Children.Add(body);grid.Children.Add(text);
   thumbnail=new Image {Width=56,Height=56,Margin=new Thickness(10,0,0,0),Stretch=Stretch.Uniform,VerticalAlignment=VerticalAlignment.Center,Visibility=Visibility.Collapsed};Grid.SetColumn(thumbnail,2);grid.Children.Add(thumbnail);surface.Child=grid;Content=surface;
-  closeOverlay=new Canvas();Grid.SetColumn(closeOverlay,0);Grid.SetColumnSpan(closeOverlay,3);Panel.SetZIndex(closeOverlay,10);grid.Children.Add(closeOverlay);
-  closeButton=new Button {Width=56,Height=56,Visibility=Visibility.Collapsed,Focusable=false,IsTabStop=false,Cursor=Cursors.Hand,ToolTip="閉じる"};
-  System.Windows.Automation.AutomationProperties.SetName(closeButton,"閉じる");
-  var closeBorder=new FrameworkElementFactory(typeof(Border));closeBorder.Name="bd";closeBorder.SetValue(Border.BackgroundProperty,new SolidColorBrush(Color.FromArgb(235,35,39,47)));closeBorder.SetValue(Border.CornerRadiusProperty,new CornerRadius(8));
-  var glyph=new FrameworkElementFactory(typeof(TextBlock));glyph.SetValue(TextBlock.TextProperty,"×");glyph.SetValue(TextBlock.ForegroundProperty,Brushes.White);glyph.SetValue(TextBlock.FontSizeProperty,24.0);glyph.SetValue(TextBlock.HorizontalAlignmentProperty,HorizontalAlignment.Center);glyph.SetValue(TextBlock.VerticalAlignmentProperty,VerticalAlignment.Center);closeBorder.AppendChild(glyph);
-  var btnTemplate=new ControlTemplate(typeof(Button)) {VisualTree=closeBorder};
-  var hoverTrigger=new Trigger {Property=UIElement.IsMouseOverProperty,Value=true};
-  hoverTrigger.Setters.Add(new Setter(Border.BackgroundProperty,new SolidColorBrush(Color.FromArgb(245,60,65,75)),"bd"));
-  var pressTrigger=new Trigger {Property=Button.IsPressedProperty,Value=true};
-  pressTrigger.Setters.Add(new Setter(Border.BackgroundProperty,new SolidColorBrush(Color.FromArgb(255,20,22,26)),"bd"));
-  btnTemplate.Triggers.Add(hoverTrigger);btnTemplate.Triggers.Add(pressTrigger);
-  closeButton.Template=btnTemplate;closeOverlay.Children.Add(closeButton);
-  closeOverlay.SizeChanged+=delegate {PositionCloseButton();};
-  closeButton.Click+=delegate(object sender,RoutedEventArgs e){e.Handled=true;SetHoverState(false);if(NotificationDismissRequested!=null)NotificationDismissRequested();};
-  closeButton.PreviewMouseLeftButtonDown+=delegate(object sender,MouseButtonEventArgs e){e.Handled=true;closeButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));};
-  MouseEnter+=delegate {SetHoverState(true);};
-  MouseMove+=delegate {if(closeButton.Visibility!=Visibility.Visible)SetHoverState(true);};
-  MouseLeave+=delegate {
-   try{var p=Mouse.GetPosition(this);if(p.X<0||p.Y<0||p.X>=ActualWidth||p.Y>=ActualHeight)SetHoverState(false);}catch{SetHoverState(false);}
-  };
-  MouseLeftButtonDown+=delegate(object sender,MouseButtonEventArgs e){if(!e.Handled&&!IsCloseTarget(e)){e.Handled=true;RaiseClicked();}};
-  MouseLeftButtonUp+=delegate(object sender,MouseButtonEventArgs e){if(!e.Handled&&!IsCloseTarget(e))RaiseClicked();};
+  MouseLeftButtonDown+=delegate(object sender,MouseButtonEventArgs e){if(!e.Handled){e.Handled=true;RaiseClicked();}};
+  MouseLeftButtonUp+=delegate(object sender,MouseButtonEventArgs e){if(!e.Handled)RaiseClicked();};
   SourceInitialized+=delegate {
    handle=new WindowInteropHelper(this).Handle; NativeWindow.NonActivating(handle);
    source=HwndSource.FromHwnd(handle);
@@ -84,25 +70,14 @@ public sealed class NotificationWindow : Window,INotificationView,INotificationC
   backdrop=new WindowBackdropService(this,surface,Border.BackgroundProperty);
   backdrop.Changed+=delegate {ApplyCorners();QueueContentRefresh();if(BackdropChanged!=null)BackdropChanged(this,EventArgs.Empty);};
  }
- bool IsCloseTarget(MouseEventArgs e){
-  if(closeButton.Visibility!=Visibility.Visible)return false;
-  if(closeButton.IsMouseOver)return true;
-  try{var p=e.GetPosition(closeButton);return p.X>=0&&p.Y>=0&&p.X<=closeButton.ActualWidth&&p.Y<=closeButton.ActualHeight;}catch{return false;}
- }
  internal void RaiseClicked(){if(NotificationClicked!=null)NotificationClicked(currentNotification);}
- internal void SetHoverState(bool value){var visibility=value?Visibility.Visible:Visibility.Collapsed;if(closeButton.Visibility==visibility)return;closeButton.Visibility=visibility;PositionCloseButton();QueueContentRefresh();}
- void PositionCloseButton(){
-  double size=settings==null?56:settings.ImageSize;closeButton.Width=closeButton.Height=size;
-  bool imageLeft=settings!=null&&settings.ImagePosition=="Left";
-  Canvas.SetLeft(closeButton,imageLeft?Math.Max(0,closeOverlay.ActualWidth-size):0);
-  Canvas.SetTop(closeButton,(closeOverlay.ActualHeight-size)/2);
- }
  void RefreshSurfaceContent(){
+  if(contentRefresh!=null){contentRefresh.Abort();contentRefresh=null;}
   if(surface.Width>0&&surface.Height>0){surface.Measure(new Size(surface.Width,surface.Height));surface.Arrange(new Rect(0,0,surface.Width,surface.Height));}
   UpdateLayout();backdrop.PresentContent(surface);
   if(compositionSlide!=null){try{compositionSlide.Update(surface);}catch{FinishCompositionSlide();}}
  }
- public void SetSampleText(string value) {currentNotification=null;body.Text=value;if(IsVisible)RefreshSurfaceContent();}
+ public void SetSampleText(string value) {FlushDeferred();currentNotification=null;body.Text=value;if(IsVisible)RefreshSurfaceContent();}
  public void SetNotification(SystemNotification value){
   currentNotification=value;
   appName.Text=value==null?"メッセージ":value.App;title.Text=value==null?"デザインの時間":value.Title;body.Text=value==null?"ちょっと気分のいい通知を、ここに。":value.Body;
@@ -111,16 +86,60 @@ public sealed class NotificationWindow : Window,INotificationView,INotificationC
   ApplyImageCrop();
   if(IsVisible)RefreshSurfaceContent();
  }
+ AppSettings deferredSettings;MonitorInfo deferredMonitor;
+ // Hidden cards are updated lazily; the pending settings are applied before the card is shown or re-stacked.
+ public void ApplyWhenShown(AppSettings value,MonitorInfo display) {
+  if(IsVisible){Apply(value,display);return;}
+  deferredSettings=value==null?null:value.Normalize();deferredMonitor=display;
+ }
+ void FlushDeferred() {
+  if(deferredSettings==null)return;
+  var pending=deferredSettings;var pendingMonitor=deferredMonitor;deferredSettings=null;deferredMonitor=null;
+  Apply(pending,pendingMonitor);
+ }
+ static LineMetrics GetLineMetrics(string fontFamilyName,double fontSize,bool highContrast){
+  string resolvedFamily=NotificationFonts.Resolve(fontFamilyName);
+  string key=resolvedFamily+"|"+fontSize.ToString(CultureInfo.InvariantCulture)+"|"+(highContrast?"1":"0");
+  LineMetrics metrics;
+  if(lineMetricsCache.TryGetValue(key,out metrics))return metrics;
+  var family=new FontFamily(resolvedFamily);
+  double appFont=Math.Max(highContrast?14:11,fontSize-2);
+  double titleFont=Math.Max(highContrast?15:0,fontSize+1);
+  double bodyFont=Math.Max(highContrast?14:0,fontSize);
+  metrics=new LineMetrics {
+   App=MeasureLineHeight(family,highContrast?FontWeights.Bold:FontWeights.Normal,appFont),
+   Title=MeasureLineHeight(family,highContrast?FontWeights.Bold:FontWeights.SemiBold,titleFont),
+   Body=MeasureLineHeight(family,highContrast?FontWeights.SemiBold:FontWeights.Normal,bodyFont)
+  };
+  lineMetricsCache[key]=metrics;
+  return metrics;
+ }
+ static double MeasureLineHeight(FontFamily family,FontWeight weight,double size){
+  var formatted=new FormattedText("国Ag",CultureInfo.GetCultureInfo("ja-JP"),FlowDirection.LeftToRight,new Typeface(family,FontStyles.Normal,weight,FontStretches.Normal),size,Brushes.Black,1);
+  return Math.Ceiling(formatted.Height+1);
+ }
+ internal static double EstimateMinimumHeight(AppSettings value){
+  var s=(value??new AppSettings()).Normalize();
+  var m=GetLineMetrics(s.FontFamilyName,s.FontSize,s.HighContrast);
+  return 22+m.App+m.Title+m.Body+4;
+ }
  public AppSettings Apply(AppSettings value,MonitorInfo display) {
-  settings=value.Normalize(); monitor=display;
-  HighContrastEnabled=settings.HighContrast;
-  FontFamily=new FontFamily(settings.FontFamilyName);
+  deferredSettings=null;deferredMonitor=null;
+  var previous=settings;settings=value.Normalize(); monitor=display;
+  highContrastEnabled=settings.HighContrast;
+  if(FontFamily.Source!=settings.FontFamilyName)FontFamily=new FontFamily(settings.FontFamilyName);
   backdrop.SetCardColor(HighContrastEnabled?"#000000":settings.CardColor);
-  appName.Foreground=new SolidColorBrush(HighContrastEnabled?Color.FromRgb(0,255,255):NotificationColors.Color(settings.TextColor,Color.FromRgb(102,111,124)));
-  title.Foreground=new SolidColorBrush(HighContrastEnabled?Color.FromRgb(255,255,0):NotificationColors.Color(settings.TextColor,Color.FromRgb(31,42,56)));
-  body.Foreground=new SolidColorBrush(HighContrastEnabled?Colors.White:NotificationColors.Color(settings.TextColor,Color.FromRgb(67,78,93)));
+  SetTextForeground(appName,HighContrastEnabled?Color.FromRgb(0,255,255):NotificationColors.Color(settings.TextColor,Color.FromRgb(102,111,124)));
+  SetTextForeground(title,HighContrastEnabled?Color.FromRgb(255,255,0):NotificationColors.Color(settings.TextColor,Color.FromRgb(31,42,56)));
+  SetTextForeground(body,HighContrastEnabled?Colors.White:NotificationColors.Color(settings.TextColor,Color.FromRgb(67,78,93)));
+  if(previous==null||previous.HighContrast!=settings.HighContrast||previous.TextOutlineColor!=settings.TextOutlineColor){
+   var outline=HighContrastEnabled||settings.TextOutlineColor==NotificationColors.Default?null:new SolidColorBrush(NotificationColors.Color(settings.TextOutlineColor,Colors.Black));
+   if(outline!=null)outline.Freeze();appName.OutlineBrush=title.OutlineBrush=body.OutlineBrush=outline;
+  }
   surface.BorderBrush=HighContrastEnabled?Brushes.White:Brushes.Transparent;
-  surface.BorderThickness=new Thickness(HighContrastEnabled?2:1);
+  surface.BorderThickness=new Thickness(HighContrastEnabled?2:0);
+  // Keep the former border's spacing inside the fill instead of leaving a transparent edge.
+  surface.Padding=HighContrastEnabled?new Thickness(15,10,15,10):new Thickness(16,11,16,11);
   surface.CornerRadius=new CornerRadius(settings.RoundedCorners?8:0);
   appName.FontSize=Math.Max(HighContrastEnabled?14:11,settings.FontSize-2);
   title.FontSize=Math.Max(HighContrastEnabled?15:0,settings.FontSize+1);
@@ -130,13 +149,13 @@ public sealed class NotificationWindow : Window,INotificationView,INotificationC
   body.FontWeight=HighContrastEnabled?FontWeights.SemiBold:FontWeights.Normal;
   thumbnail.Width=thumbnail.Height=settings.ImageSize;
   bool imageLeft=settings.ImagePosition=="Left";Grid.SetColumn(thumbnail,imageLeft?0:2);thumbnail.Margin=imageLeft?new Thickness(0,0,10,0):new Thickness(10,0,0,0);
-  PositionCloseButton();
   ApplyImageCrop();
-  double appLine=LineHeight(appName),titleLine=LineHeight(title),bodyLine=LineHeight(body);
+  var metrics=GetLineMetrics(settings.FontFamilyName,settings.FontSize,HighContrastEnabled);
+  double appLine=metrics.App,titleLine=metrics.Title,bodyLine=metrics.Body;
   // One fully visible body line is the minimum. A second line is enabled only when it fits.
-  MeasuredMinimumHeight=22+appLine+titleLine+bodyLine+4;
-  var requested=Layout.Resolve(settings,monitor.AvailableDip,MeasuredMinimumHeight);
-  double contentMinimum=thumbnail.Source==null?MeasuredMinimumHeight:Math.Max(MeasuredMinimumHeight,settings.ImageSize+surface.Padding.Top+surface.Padding.Bottom+surface.BorderThickness.Top+surface.BorderThickness.Bottom);
+  measuredMinimumHeight=22+appLine+titleLine+bodyLine+4;
+  var requested=Layout.Resolve(settings,monitor.AvailableDip,measuredMinimumHeight);
+  double contentMinimum=thumbnail.Source==null?measuredMinimumHeight:Math.Max(measuredMinimumHeight,settings.ImageSize+surface.Padding.Top+surface.Padding.Bottom+surface.BorderThickness.Top+surface.BorderThickness.Bottom);
   var result=Layout.Resolve(settings,monitor.AvailableDip,contentMinimum,stackOffsetDip);settings=result.Settings;
   double spare=settings.Height-22-appLine-titleLine-4;
   BodyLines=spare>=bodyLine*2?2:1;
@@ -146,39 +165,33 @@ public sealed class NotificationWindow : Window,INotificationView,INotificationC
   backdrop.SetStrength(settings.BackdropStrength);
   if(HighContrastEnabled)backdrop.SetMode(BackdropMode.Off);else ApplyBackdrop();
   ApplyCorners();if(handle!=IntPtr.Zero&&IsVisible&&animation==null&&compositionSlide==null)Place();
-  Measure(new Size(Width,Height));Arrange(new Rect(0,0,Width,Height));if(IsVisible)RefreshSurfaceContent();
+  if(IsVisible){Measure(new Size(Width,Height));Arrange(new Rect(0,0,Width,Height));QueueContentRefresh();}
   // A content image can temporarily enlarge a notification without changing the user's card height.
   return requested.Settings.Copy();
  }
+ static void SetTextForeground(TextBlock block,Color color){
+  var current=block.Foreground as SolidColorBrush;if(current!=null&&current.Color==color)return;
+  var brush=new SolidColorBrush(color);brush.Freeze();block.Foreground=brush;
+ }
  public void SetStackOffset(double offsetDip) {
+  if(IsVisible)FlushDeferred();
   double normalized=Math.Max(0,double.IsNaN(offsetDip)||double.IsInfinity(offsetDip)?0:offsetDip);
   stackOffsetDip=normalized;
-  if(settings!=null&&monitor!=null) {
-   double contentMinimum=thumbnail.Source==null?MeasuredMinimumHeight:Math.Max(MeasuredMinimumHeight,settings.ImageSize+surface.Padding.Top+surface.Padding.Bottom+surface.BorderThickness.Top+surface.BorderThickness.Bottom);
+  if(settings!=null&&monitor!=null&&IsVisible) {
+   double contentMinimum=thumbnail.Source==null?measuredMinimumHeight:Math.Max(measuredMinimumHeight,settings.ImageSize+surface.Padding.Top+surface.Padding.Bottom+surface.BorderThickness.Top+surface.BorderThickness.Bottom);
    var result=Layout.Resolve(settings,monitor.AvailableDip,contentMinimum,stackOffsetDip);
    pixels=monitor.ToPixels(result.Bounds);
    if(handle!=IntPtr.Zero&&IsVisible&&animation==null&&compositionSlide==null)Place();
   }
  }
  void ApplyImageCrop(){double radius=thumbnail.Width/2;thumbnail.Clip=circleImage?new EllipseGeometry(new Point(radius,radius),radius,radius):null;thumbnail.Stretch=circleImage?Stretch.UniformToFill:Stretch.Uniform;}
- double LineHeight(TextBlock block) {
-  var formatted=new FormattedText("国Ag",CultureInfo.GetCultureInfo("ja-JP"),FlowDirection.LeftToRight,new Typeface(block.FontFamily,block.FontStyle,block.FontWeight,block.FontStretch),block.FontSize,Brushes.Black,1);
-  return Math.Ceiling(formatted.Height+1);
- }
  IntPtr Hook(IntPtr hwnd,int msg,IntPtr w,IntPtr l,ref bool handled) {
   if(msg==0x21) {handled=true;return new IntPtr(3);} // MA_NOACTIVATE
   if(msg==0x2e0&&DpiEnvironmentChanged!=null)DpiEnvironmentChanged(this,EventArgs.Empty);
   if(msg==0x8051)backdrop.CheckGraphicsDevice();
   if(msg==0x8056){handled=true;CompositionAnimationCompleted(w.ToInt64());return IntPtr.Zero;}
   if(msg==0x8055&&compositionSlide!=null){handled=true;FinishCompositionSlide();return IntPtr.Zero;}
-  if(msg==0x8054&&compositionSlide!=null){handled=true;SetHoverState(w!=IntPtr.Zero);return IntPtr.Zero;}
-  if(msg==0x8053&&compositionSlide!=null){
-   handled=true;
-   long packed=l.ToInt64();var point=new Point((short)(packed&65535)/monitor.DpiScale,(short)((packed>>16)&65535)/monitor.DpiScale);
-   var bounds=closeButton.TransformToAncestor(surface).TransformBounds(new Rect(new Size(closeButton.ActualWidth,closeButton.ActualHeight)));
-   if(closeButton.Visibility==Visibility.Visible&&bounds.Contains(point))closeButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));else RaiseClicked();
-   return IntPtr.Zero;
-  }
+  if(msg==0x8053&&compositionSlide!=null){handled=true;RaiseClicked();return IntPtr.Zero;}
   return IntPtr.Zero;
  }
  void ApplyBackdrop() {
@@ -200,13 +213,31 @@ public sealed class NotificationWindow : Window,INotificationView,INotificationC
  }
  void QueueContentRefresh(){
   if(!IsVisible||handle==IntPtr.Zero||(contentRefresh!=null&&contentRefresh.Status==DispatcherOperationStatus.Pending))return;
-  contentRefresh=Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle,new Action(delegate {contentRefresh=null;if(IsVisible&&handle!=IntPtr.Zero)RefreshSurfaceContent();}));
+  contentRefresh=Dispatcher.BeginInvoke(DispatcherPriority.Background,new Action(delegate {contentRefresh=null;if(IsVisible&&handle!=IntPtr.Zero)RefreshSurfaceContent();}));
+ }
+ public void ShowStaticCard() {
+  FlushDeferred();
+  bool wasVisible=IsVisible;StopAnimation();surface.Opacity=1;
+  if(!wasVisible){
+   new WindowInteropHelper(this).EnsureHandle();
+   Place();Show();NativeWindow.Alpha(handle,1);ApplyBackdrop();backdrop.Refresh();RefreshSurfaceContent();
+  }else{
+   Place();NativeWindow.Alpha(handle,1);ApplyBackdrop();QueueContentRefresh();backdrop.SetContentOpacity(1);
+  }
  }
  public void ShowCard() {
+  FlushDeferred();
   bool wasVisible=IsVisible;StopAnimation();surface.Opacity=1;
-  if(!wasVisible) {new WindowInteropHelper(this).EnsureHandle();NativeWindow.Place(handle,SlidePosition(pixels,AnimationScreen(),IsLeftCorner(),0,true,16*monitor.DpiScale));Show();NativeWindow.Alpha(handle,1);ApplyBackdrop();backdrop.Refresh();RefreshSurfaceContent();Animate(true,null);} else {Place();NativeWindow.Alpha(handle,1);ApplyBackdrop();backdrop.Refresh();RefreshSurfaceContent();backdrop.SetContentOpacity(1);}
+  if(!wasVisible) {new WindowInteropHelper(this).EnsureHandle();NativeWindow.Place(handle,SlidePosition(pixels,AnimationScreen(),IsLeftCorner(),0,true,16*monitor.DpiScale));Show();NativeWindow.Alpha(handle,1);ApplyBackdrop();backdrop.Refresh();RefreshSurfaceContent();Animate(true,null);} else {
+   Place();
+   NativeWindow.Alpha(handle,1);
+   ApplyBackdrop();
+   backdrop.Refresh();
+   QueueContentRefresh();
+   backdrop.SetContentOpacity(1);
+  }
  }
- public void HideCard() {SetHoverState(false);StopAnimation();surface.Opacity=1;if(handle!=IntPtr.Zero)NativeWindow.Alpha(handle,1);Hide();}
+ public void HideCard() {StopAnimation();surface.Opacity=1;if(handle!=IntPtr.Zero)NativeWindow.Alpha(handle,1);Hide();}
  public void FadeOut(Action completed) {StopAnimation();Animate(false,completed);}
  void Animate(bool entering,Action completed) {
   double seconds=entering?EntryDurationSeconds:ExitDurationSeconds;
@@ -240,7 +271,6 @@ public sealed class NotificationWindow : Window,INotificationView,INotificationC
  }
   void StartCpuAnimation(bool entering,Action completed,Rect exitStart){
    StopAnimation();
-   if(!entering)SetHoverState(false);
    var watch=System.Diagnostics.Stopwatch.StartNew();double duration=entering?320.0:220.0;
    Rect startRect=entering?pixels:exitStart;
    bool finished=false;
@@ -266,7 +296,7 @@ public sealed class NotificationWindow : Window,INotificationView,INotificationC
  void FinishCompositionSlide(){
   if(compositionSlide==null||compositionHandoffPending)return;
   bool entering=compositionEntering;var completed=compositionCompleted;
-  if(!entering){SetHoverState(false);Hide();StopAnimation();if(completed!=null)completed();return;}
+  if(!entering){Hide();StopAnimation();if(completed!=null)completed();return;}
   var session=compositionSlide;compositionHandoffPending=true;
   // Upload the real foreground and restore its HWND while the final proxy frame
   // still covers it. Let WPF process rendering before the presentation barrier.
@@ -286,9 +316,9 @@ public sealed class NotificationWindow : Window,INotificationView,INotificationC
   if(animation!=null){animation.Stop();animation=null;}
   if(compositionSlide!=null){var old=compositionSlide;compositionSlide=null;compositionCompleted=null;try{if(handle!=IntPtr.Zero&&IsVisible)NativeWindow.Place(handle,old.CurrentBounds);}finally{old.Dispose();}}
  }
- protected override void OnClosed(EventArgs e) {StopAnimation();if(contentRefresh!=null){contentRefresh.Abort();contentRefresh=null;}backdrop.Dispose();if(source!=null){source.RemoveHook(Hook);source=null;}handle=IntPtr.Zero;BackdropChanged=null;NotificationClicked=null;NotificationDismissRequested=null;base.OnClosed(e);}
+ protected override void OnClosed(EventArgs e) {StopAnimation();if(contentRefresh!=null){contentRefresh.Abort();contentRefresh=null;}backdrop.Dispose();if(source!=null){source.RemoveHook(Hook);source=null;}handle=IntPtr.Zero;BackdropChanged=null;NotificationClicked=null;base.OnClosed(e);}
  public void SavePreview(string path) {
-  RefreshSurfaceContent();var bmp=new RenderTargetBitmap((int)Math.Ceiling(Width*2),(int)Math.Ceiling(Height*2),192,192,PixelFormats.Pbgra32);bmp.Render(surface);
+  FlushDeferred();RefreshSurfaceContent();var bmp=new RenderTargetBitmap((int)Math.Ceiling(Width*2),(int)Math.Ceiling(Height*2),192,192,PixelFormats.Pbgra32);bmp.Render(surface);
   var encoder=new PngBitmapEncoder();encoder.Frames.Add(BitmapFrame.Create(bmp));using(var stream=File.Create(path))encoder.Save(stream);
  }
 }

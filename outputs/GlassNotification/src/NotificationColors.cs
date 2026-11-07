@@ -21,8 +21,8 @@ public static class NotificationColors {
   value=Normalize(value);if(value==Default)return fallback;
   return System.Windows.Media.Color.FromRgb(byte.Parse(value.Substring(1,2),NumberStyles.HexNumber,CultureInfo.InvariantCulture),byte.Parse(value.Substring(3,2),NumberStyles.HexNumber,CultureInfo.InvariantCulture),byte.Parse(value.Substring(5,2),NumberStyles.HexNumber,CultureInfo.InvariantCulture));
  }
- public static List<NotificationColorChoice> Choices(){
-  return new List<NotificationColorChoice>{new NotificationColorChoice("標準",Default),new NotificationColorChoice("白","#FFFFFF"),new NotificationColorChoice("黒","#000000"),new NotificationColorChoice("青","#2563EB"),new NotificationColorChoice("水色","#8ECAFF"),new NotificationColorChoice("ピンク","#F4A9CC"),new NotificationColorChoice("赤","#DC2626"),new NotificationColorChoice("緑","#166534"),new NotificationColorChoice("紫","#A78BFA"),new NotificationColorChoice("黄色","#FDE68A")};
+ public static List<NotificationColorChoice> Choices(bool outline=false){
+  return new List<NotificationColorChoice>{new NotificationColorChoice(outline?"縁取りなし":"標準",Default),new NotificationColorChoice("白","#FFFFFF"),new NotificationColorChoice("黒","#000000"),new NotificationColorChoice("青","#2563EB"),new NotificationColorChoice("水色","#8ECAFF"),new NotificationColorChoice("ピンク","#F4A9CC"),new NotificationColorChoice("赤","#DC2626"),new NotificationColorChoice("緑","#166534"),new NotificationColorChoice("紫","#A78BFA"),new NotificationColorChoice("黄色","#FDE68A")};
  }
 }
 }
