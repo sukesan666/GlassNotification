@@ -83,6 +83,7 @@ public static class UiLocalization {
   {"通知の連動を終了しました。","Notification integration ended."},
   {"通知設定を完全に元に戻すには、Windowsの通知アクセス許可を手動で解除してください。","To fully restore notification settings, revoke notification access in Windows manually."},{"システム・詳細設定（自動起動・言語など）","System and advanced (startup, language, etc.)"}
   ,{"開く","Open"},{"一時停止","Pause"},{"再開","Resume"},{"履歴を消去しました。","History cleared."},
+  {"現在「一時停止（休憩モード）」中です。通知カードの表示と音が停止しています。","Do Not Disturb is on. Card display and sounds are paused."},
   {"休憩モード中です。通知の受信は継続し、カード表示と音を停止しています。","Do Not Disturb is on. Notifications are still received, but cards and sounds are paused."},
   {"カード表示を一時停止しました。Windows通知の受信は継続します。","Card display paused. Windows notifications continue to be received."},
   {"カード表示を再開しました。","Card display resumed."},

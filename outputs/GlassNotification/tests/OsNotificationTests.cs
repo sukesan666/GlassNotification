@@ -28,6 +28,7 @@ public static partial class Tests {
   store.Senders=new[]{"Sender.A","Sender.B"};store.Write("Sender.A","ShowBanner",1);store.Fail="Sender.B";store.FailRestore=true;prefs=new OsNotificationPreferences(store,path);string failure="";try{prefs.Apply(true,false);}catch(IOException e){failure=e.Message;}Check(failure.Contains("復元")&&prefs.Recoverable,"failed rollback is explicitly reported and keeps recovery data");store.Fail=null;store.FailRestore=false;prefs.Restore();Check(store.Read("Sender.A","ShowBanner")==1,"retry restores settings after rollback failure is resolved");
  }
  static void RegisteredAppActivationTests(string folder){
+  using(var source=new SystemNotificationSource()){source.Reset();source.Reset();}
   string appId="GlassNotification.OSLink_example!App";
   string firstDirectory=Path.Combine(folder,"portable-original"),movedDirectory=Path.Combine(folder,"portable moved elsewhere");
   var registered=OsNotificationPanel.LinkedAppStartInfo(appId,firstDirectory);

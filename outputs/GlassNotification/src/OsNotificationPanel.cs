@@ -20,7 +20,7 @@ public sealed class OsNotificationPanel : StackPanel,IDisposable {
   if(!source.TryAttachImages(imageWaiting)&&DateTime.UtcNow<imageDeadline)return null;
   var result=imageWaiting;imageWaiting=null;return result;
  }
- SystemNotificationSource source;FileStream ownership;readonly string ownershipPath;bool active,connected,disposed,registering,syncing,paused,pollingSuspended;DateTime nextCard,nextPreferences;
+ SystemNotificationSource source;FileStream ownership;readonly string ownershipPath;bool active,connected,disposed,registering,syncing,paused,pollingSuspended;DateTime nextCard,nextPreferences;int consecutiveFailures,accessDeniedCount;const int MaxConsecutiveFailures=20;const int MaxAccessDeniedCount=20;
  internal bool IsPollingSuspended {get{return pollingSuspended;}}
  public OsNotificationPanel(Window window,NotificationController target):this(window,target,SystemNotificationSource.Register,null){}
  public OsNotificationPanel(Window window,NotificationController target,Func<bool> registerAction):this(window,target,registerAction,null){}
@@ -57,9 +57,16 @@ public sealed class OsNotificationPanel : StackPanel,IDisposable {
  void Start(){if(disposed||!Acquire())return;try{
    NotificationResourceCache.EnsureDefaultWatcher();
    if(preferences.Recoverable){preferences.Restore();SetStatus("通知アクセスを確認しています。");}
-   source=new SystemNotificationSource();int access=source.Access(true);active=true;connected=false;feed.Reset();imageWaiting=null;nextCard=DateTime.MinValue;
-   if(!pollingSuspended||registering)timer.Start();
-   SetStatus(access==-1?"Windowsの「設定 > システム > 通知」で通知へのアクセスを許可してください。":"通知へのアクセスを確認しています。");UpdateControls();
+   source=new SystemNotificationSource();int access=source.Access(true);active=true;connected=access==1;consecutiveFailures=0;accessDeniedCount=0;feed.Reset();imageWaiting=null;nextCard=DateTime.MinValue;
+   if(connected){
+    SetStatus("アプリ・システム通知の受信を開始しました。");
+    if(banners.IsChecked!=true&&sounds.IsChecked!=true&&!preferences.Recoverable)SetChecks(true,true);
+    preferences.Apply(banners.IsChecked==true,sounds.IsChecked==true);
+   }else{
+    SetStatus(access==-1?"Windowsの「設定 > システム > 通知」で通知へのアクセスを許可してください。":"通知へのアクセスを確認しています。");
+   }
+   if(!pollingSuspended||registering||access==-1)timer.Start();
+   UpdateControls();
   }catch(Exception e){if(source!=null){source.Dispose();source=null;}Error("通知の連動を開始できませんでした",e);UpdateControls();}}
  internal void StartIntegration(){if(disposed||active||registering)return;Start();}
  internal void SetPollingSuspended(bool value){
@@ -73,25 +80,37 @@ public sealed class OsNotificationPanel : StackPanel,IDisposable {
  }
  void Tick(){if(disposed)return;try{
    if(registering){if(registrar()){registering=false;if(pollingSuspended||!active)timer.Stop();SetStatus("登録しました。連動版を開きます。");LaunchLinkedApp();UpdateControls();}if(pollingSuspended||!active)return;}
+   if(!active||source==null)return;
+   int access=source.Access(false);
+   if(access==-1)return;
+   if(access!=1){
+    accessDeniedCount++;
+    if(accessDeniedCount>=MaxAccessDeniedCount){
+     Stop("通知アクセスが許可されていないため停止しました。Chromeの「通知アクセス」設定を確認してください。");
+    }
+    return;
+   }
+   accessDeniedCount=0;
+   if(!connected){
+    connected=true;
+    SetStatus("アプリ・システム通知の受信を開始しました。");
+    UpdateControls();
+    try{
+     if(banners.IsChecked!=true&&sounds.IsChecked!=true&&!preferences.Recoverable)SetChecks(true,true);
+     if(Acquire())preferences.Apply(banners.IsChecked==true,sounds.IsChecked==true);
+    }catch(Exception ex){
+     Error("標準通知の抑制設定を反映できませんでした",ex);
+    }
+   }
    if(pollingSuspended){timer.Stop();return;}
-   if(!active||source==null)return;int access=source.Access(false);if(access==-1)return;if(access!=1){Stop("通知アクセスが許可されていないため停止しました。Chromeの「通知アクセス」設定を確認してください。");return;}
-   var snapshot=source.Read();if(snapshot!=null){
+   var snapshot=source.Read();
+   consecutiveFailures=0;
+   if(snapshot!=null){
     if(imageWaiting!=null){bool present=false;foreach(var item in snapshot){if(item.Id==imageWaiting.Id){present=true;if(imageWaiting.AppIcon==null&&item.AppIcon!=null)imageWaiting.AppIcon=item.AppIcon;}}if(!present||!senderFilters.IsAllowed(imageWaiting.SenderId))imageWaiting=null;}
     UpdateSenderList(snapshot);var arrivingImages=new List<SystemNotification>();
     feed.Observe(snapshot,delegate(SystemNotification n){return senderFilters.IsAllowed(n.SenderId);},arrivingImages.Add);
     foreach(var pending in feed.Pending)source.TryAttachImages(pending);
     source.CaptureImages(arrivingImages,feed.Pending,imageWaiting);
-    if(!connected){
-     connected=true;
-     SetStatus("アプリ・システム通知の受信を開始しました。");
-     UpdateControls();
-     try{
-      SetChecks(true,true);
-      if(Acquire())preferences.Apply(true,true);
-     }catch(Exception ex){
-      Error("標準通知の抑制設定を反映できませんでした",ex);
-     }
-    }
    }
    if(paused){SystemNotification pausedNotification;while((pausedNotification=TakeWithImages())!=null)if(NotificationArrived!=null)NotificationArrived(pausedNotification);}
    else{
@@ -106,9 +125,30 @@ public sealed class OsNotificationPanel : StackPanel,IDisposable {
      }
     }
    }
-   if(connected&&DateTime.UtcNow>=nextPreferences){nextPreferences=DateTime.UtcNow.AddSeconds(5);if(banners.IsChecked==true||sounds.IsChecked==true)preferences.Apply(banners.IsChecked==true,sounds.IsChecked==true);}
-  }catch(Exception e){bool failedRegistration=registering;registering=false;Stop("連動中に問題が発生したため停止しました。");Error(failedRegistration?"Chromeに登録できませんでした":"Chrome連動中に問題が発生しました",e);}}
- void PreferencesChanged(object sender,RoutedEventArgs args){if(syncing||disposed)return;if(!connected){SetChecks(false,false);return;}try{if(!Acquire())return;preferences.Apply(banners.IsChecked==true,sounds.IsChecked==true);SetStatus("標準通知の抑制設定を反映しました。");}catch(Exception e){Error("標準通知の抑制設定を反映できませんでした",e);}}
+   if(connected&&DateTime.UtcNow>=nextPreferences){
+    nextPreferences=DateTime.UtcNow.AddSeconds(30);
+    if(banners.IsChecked==true||sounds.IsChecked==true){
+     try{if(Acquire())preferences.Apply(banners.IsChecked==true,sounds.IsChecked==true);}
+     catch(Exception ex){Error("標準通知の抑制設定を反映できませんでした",ex);}
+    }
+   }
+  }catch(Exception e){
+   if(registering){
+    registering=false;
+    Stop("Chrome連動版の登録に失敗しました。");
+    Error("Chromeに登録できませんでした",e);
+    return;
+   }
+   consecutiveFailures++;
+   try{if(source!=null)source.Reset();}catch{}
+   if(consecutiveFailures>=MaxConsecutiveFailures){
+    Stop("連動中に問題が発生したため停止しました。");
+    Error("Chrome連動中に問題が発生しました",e);
+   }else{
+    SetStatus("通知連動を再試行しています… ("+consecutiveFailures+"/"+MaxConsecutiveFailures+")");
+   }
+  }}
+ void PreferencesChanged(object sender,RoutedEventArgs args){if(syncing||disposed)return;try{if(!Acquire())return;preferences.Apply(banners.IsChecked==true,sounds.IsChecked==true);SetStatus("標準通知の抑制設定を反映しました。");}catch(Exception e){Error("標準通知の抑制設定を反映できませんでした",e);}finally{UpdateControls();}}
  void SetChecks(bool banner,bool sound){syncing=true;try{banners.IsChecked=banner;sounds.IsChecked=sound;}finally{syncing=false;}}
  void UpdateSenderList(IEnumerable<SystemNotification> notifications){
   int previousCount=senderChecks.Count;
@@ -116,7 +156,13 @@ public sealed class OsNotificationPanel : StackPanel,IDisposable {
    string id=notification.SenderId;if(string.IsNullOrWhiteSpace(id))continue;
    EnsureSenderRow(id,string.IsNullOrWhiteSpace(notification.App)?id:notification.App);
   }
-  if(senderFilters.IsAvailable&&senderChecks.Count!=previousCount)SetSenderStatus(senderChecks.Count==0?"受信を開始すると、見つかった通知元がここに表示されます。":"通知元ごとに表示を許可またはブロックできます。");
+  if(senderFilters.IsAvailable&&senderChecks.Count!=previousCount){
+   SetSenderStatus(senderChecks.Count==0?"受信を開始すると、見つかった通知元がここに表示されます。":"通知元ごとに表示を許可またはブロックできます。");
+   if(connected&&(banners.IsChecked==true||sounds.IsChecked==true)){
+    try{if(Acquire())preferences.Apply(banners.IsChecked==true,sounds.IsChecked==true);}
+    catch(Exception ex){Error("標準通知の抑制設定を反映できませんでした",ex);}
+   }
+  }
  }
  void EnsureSenderRow(string id,string app){
   CheckBox check;
@@ -135,8 +181,8 @@ public sealed class OsNotificationPanel : StackPanel,IDisposable {
   catch(Exception e){syncing=true;try{check.IsChecked=senderFilters.IsAllowed(id);}finally{syncing=false;}SetSenderStatus("通知元フィルターを保存できませんでした。"+e.Message);}
  }
  public void SetPaused(bool value){if(disposed||paused==value)return;paused=value;if(paused){feed.DiscardPending();imageWaiting=null;if(source!=null)source.RetainImages(feed.Pending,null);}}
- void Stop(string message){active=false;connected=false;timer.Stop();if(source!=null){source.Dispose();source=null;}feed.Reset();imageWaiting=null;try{if(ownership!=null)preferences.Restore();SetChecks(false,false);SetStatus(message);}catch(Exception e){Error("Chrome通知設定の停止処理に失敗しました",e);}finally{UpdateControls();}}
- void UpdateControls(){banners.IsEnabled=sounds.IsEnabled=connected&&!registering;test.IsEnabled=connected;listen.IsEnabled=!registering;listen.Content=UiLocalization.Translate(active?"通知の連動を停止":"通知の連動を開始",CurrentLanguage);register.IsEnabled=!active&&!registering;restore.IsEnabled=!active;}
+ void Stop(string message){active=false;connected=false;consecutiveFailures=0;accessDeniedCount=0;timer.Stop();if(source!=null){source.Dispose();source=null;}feed.Reset();imageWaiting=null;try{if(ownership!=null)preferences.Restore();SetChecks(false,false);SetStatus(message);}catch(Exception e){Error("Chrome通知設定の停止処理に失敗しました",e);}finally{UpdateControls();}}
+ void UpdateControls(){banners.IsEnabled=sounds.IsEnabled=!registering;test.IsEnabled=connected;listen.IsEnabled=!registering;listen.Content=UiLocalization.Translate(active?"通知の連動を停止":"通知の連動を開始",CurrentLanguage);register.IsEnabled=!active&&!registering;restore.IsEnabled=!active||preferences.Recoverable;}
  internal const string LinkedExecutableName="GlassNotification.Linked.exe";
  internal static ProcessStartInfo LinkedAppStartInfo(string registeredAppId,string baseDirectory){
   return string.IsNullOrWhiteSpace(registeredAppId)?new ProcessStartInfo(Path.Combine(baseDirectory,LinkedExecutableName)){UseShellExecute=true}:new ProcessStartInfo("explorer.exe","shell:AppsFolder\\"+registeredAppId){UseShellExecute=true};

@@ -23,6 +23,7 @@ public sealed class ControlWindow : Window {
  readonly ComboBox backdropMode,backdropStrength,cardFontFamily;readonly CheckBox roundedCorners;readonly TextBlock backdropStatus;
  readonly ComboBox cardColor,textColor,textOutlineColor,themeMode,language,imagePosition;readonly CheckBox startWithWindows,startMinimizedToTray,highContrast;
  readonly Button modeSettings,modeActive;readonly TextBlock modeDescription;
+ readonly Border pauseBanner;readonly TextBlock pauseText;readonly Button pauseResumeBtn;
  readonly OsNotificationPanel osNotifications;
  readonly IStartupRegistration startupRegistration;
  readonly IAppRuntimeStateStore runtimeStateStore;readonly AppRuntimeState runtimeState;
@@ -65,6 +66,21 @@ public sealed class ControlWindow : Window {
    modeDescription=new TextBlock {Name="ModeDescription",TextWrapping=TextWrapping.Wrap,FontSize=11,Foreground=Brush("#637286"),Margin=new Thickness(0,2,0,10)};
    RegisterName("ModeDescription",modeDescription);
    panel.Children.Add(modeDescription);
+   pauseBanner=new Border {
+    Background=Brush("#FFF3CD"),BorderBrush=Brush("#FFEEBA"),BorderThickness=new Thickness(1),
+    CornerRadius=new CornerRadius(6),Padding=new Thickness(12,8,12,8),Margin=new Thickness(0,0,0,10),
+    Visibility=Visibility.Collapsed
+   };
+   var pauseGrid=new Grid();
+   pauseGrid.ColumnDefinitions.Add(new ColumnDefinition {Width=new GridLength(1,GridUnitType.Star)});
+   pauseGrid.ColumnDefinitions.Add(new ColumnDefinition {Width=GridLength.Auto});
+   pauseText=new TextBlock {Text="現在「一時停止（休憩モード）」中です。通知カードの表示と音が停止しています。",FontSize=11,Foreground=Brush("#856404"),VerticalAlignment=VerticalAlignment.Center,TextWrapping=TextWrapping.Wrap};
+   pauseResumeBtn=Button("再開","ResumeFromBanner");pauseResumeBtn.Padding=new Thickness(12,5,12,5);pauseResumeBtn.Margin=new Thickness(8,0,0,0);
+   pauseResumeBtn.Click+=delegate {SetPaused(false);};
+   Grid.SetColumn(pauseResumeBtn,1);
+   pauseGrid.Children.Add(pauseText);pauseGrid.Children.Add(pauseResumeBtn);
+   pauseBanner.Child=pauseGrid;
+   panel.Children.Add(pauseBanner);
    var columns=new Grid {Margin=new Thickness(0,10,0,0)};
    columns.ColumnDefinitions.Add(new ColumnDefinition {Width=new GridLength(1,GridUnitType.Star)});
    columns.ColumnDefinitions.Add(new ColumnDefinition {Width=new GridLength(24)});
@@ -143,7 +159,7 @@ public sealed class ControlWindow : Window {
   osNotifications.SetPollingSuspended(true);
   controller.Initialize(initial);string startupWarning=null;
   if(initial.StartWithWindows)try{startupRegistration.SetEnabled(true);}catch(Exception e){startupWarning="Windows起動時の登録を適用できませんでした。"+e.Message;}
-  Sync();ApplyLanguage();ApplyTheme();UpdateTrayLanguage();UpdateModeControls();if(warning!=null)Report(warning);if(startupWarning!=null)Report(startupWarning);
+  Sync();ApplyLanguage();ApplyTheme();UpdateTrayLanguage();UpdateModeControls();UpdatePauseBanner();if(warning!=null)Report(warning);if(startupWarning!=null)Report(startupWarning);
   modeSettings.Click+=delegate {SetOperationMode(OperationMode.Settings);};
   modeActive.Click+=delegate {SetOperationMode(OperationMode.Active);};
   BindSlider(cardWidth,delegate(AppSettings s,double v){s.Width=v;});
@@ -180,7 +196,7 @@ public sealed class ControlWindow : Window {
   };
   exit.Click+=delegate {Close();};
   Loaded+=delegate {
-   controller.SetPaused(runtimeState.DoNotDisturb);IsPaused=runtimeState.DoNotDisturb;trayPause.Enabled=!IsPaused;trayResume.Enabled=IsPaused;
+   controller.SetPaused(runtimeState.DoNotDisturb);IsPaused=runtimeState.DoNotDisturb;trayPause.Enabled=!IsPaused;trayResume.Enabled=IsPaused;UpdatePauseBanner();
    if(IsChromeLinkedExecutable())osNotifications.StartIntegration();
    CheckRestoredSound();
    if(controller.Settings.StartMinimizedToTray||runtimeState.MinimizedToTray)MinimizeToTray();
@@ -262,7 +278,7 @@ public sealed class ControlWindow : Window {
   preview.IsEnabled=!value&&controller.Settings.SoundKind!=SoundKind.None;
   trayPause.Enabled=!value;trayResume.Enabled=value;
   RefreshHistoryControls();
-  Report(value?"カード表示を一時停止しました。Windows通知の受信は継続します。":"カード表示を再開しました。");
+  UpdatePauseBanner();Sync();Report(value?"カード表示を一時停止しました。Windows通知の受信は継続します。":"カード表示を再開しました。");
  }
  internal void RecordNotification(SystemNotification notification){
   notificationHistory.Add(notification);historyStatus.Text=UiLocalization.Translate("この起動中の通知："+notificationHistory.Items.Count+" / "+NotificationHistory.Capacity+"件",CurrentLanguage);
@@ -425,7 +441,19 @@ public sealed class ControlWindow : Window {
  void UpdateTrayLanguage(){
   trayOpen.Text=UiLocalization.Translate("開く",CurrentLanguage);trayPause.Text=UiLocalization.Translate("一時停止",CurrentLanguage);trayResume.Text=UiLocalization.Translate("再開",CurrentLanguage);trayExit.Text=UiLocalization.Translate("終了",CurrentLanguage);
  }
- void ApplyTheme(){
+ void UpdatePauseBanner(){
+  if(pauseBanner==null)return;
+  pauseBanner.Visibility=IsPaused?Visibility.Visible:Visibility.Collapsed;
+  if(IsPaused){
+   bool dark=controller!=null&&(controller.Settings.ThemeMode=="Dark"||controller.Settings.ThemeMode=="System"&&UiLocalization.IsSystemDark());
+   pauseBanner.Background=dark?Brush("#3D331A"):Brush("#FFF3CD");
+   pauseBanner.BorderBrush=dark?Brush("#5C4C24"):Brush("#FFEEBA");
+   pauseText.Foreground=dark?Brush("#FFE082"):Brush("#856404");
+   pauseText.Text=UiLocalization.Translate("現在「一時停止（休憩モード）」中です。通知カードの表示と音が停止しています。",CurrentLanguage);
+   pauseResumeBtn.Content=UiLocalization.Translate("再開",CurrentLanguage);
+  }
+ }
+ void ApplyTheme(){UpdatePauseBanner();
   ApplyTheme(this);
  }
  internal void ApplyTheme(DependencyObject root){

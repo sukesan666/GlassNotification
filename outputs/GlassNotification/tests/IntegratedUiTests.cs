@@ -160,7 +160,13 @@ public static partial class Tests {
   trayOpen.PerformClick();Pump(100);Check(window.IsVisible&&window.ShowInTaskbar&&!window.IsInTray&&window.IsTrayIconVisible&&window.CurrentMode==OperationMode.Settings&&cardForTest(window).IsVisible,"tray open restores the window in settings mode and displays stationary card");
   trayPause.PerformClick();Pump(100);Check(window.IsPaused&&!trayPause.Enabled&&trayResume.Enabled&&!((Button)window.FindName("PreviewSound")).IsEnabled,"tray pause disables sound preview");
   trayResume.PerformClick();Pump(100);Check(!window.IsPaused&&trayPause.Enabled&&!trayResume.Enabled,"tray resume restores controls");
-  Check(((CheckBox)window.FindName("OsBanners")).IsChecked==false&&((CheckBox)window.FindName("OsSounds")).IsChecked==false,"OS suppression is never enabled merely by opening settings");
+  var osBannersCheck=(CheckBox)window.FindName("OsBanners");var osSoundsCheck=(CheckBox)window.FindName("OsSounds");
+  Check(osBannersCheck.IsChecked==false&&osSoundsCheck.IsChecked==false&&osBannersCheck.IsEnabled&&osSoundsCheck.IsEnabled,"OS suppression starts unchecked and enabled");
+  osBannersCheck.IsChecked=true;
+  Check(osBannersCheck.IsChecked==true&&osSoundsCheck.IsEnabled,"checking banner suppression leaves sound suppression enabled and interactive");
+  osSoundsCheck.IsChecked=true;
+  Check(osSoundsCheck.IsChecked==true&&osBannersCheck.IsEnabled,"checking sound suppression leaves banner suppression enabled");
+  osBannersCheck.IsChecked=false;osSoundsCheck.IsChecked=false;
   var glass=(ComboBox)window.FindName("BackdropMode");Check(glass!=null&&glass.SelectedIndex==0,"Acrylic recommended by default");
   var glassStrength=(ComboBox)window.FindName("BackdropStrength");
   Check(glassStrength!=null&&glassStrength.Items.Count==3&&glassStrength.SelectedIndex==(int)BackdropStrength.Standard&&glassStrength.IsEnabled,"Acrylic strength offers weak, standard and strong with standard default");

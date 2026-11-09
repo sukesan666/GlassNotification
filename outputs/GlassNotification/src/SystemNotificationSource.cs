@@ -44,6 +44,7 @@ public sealed class SystemNotificationSource : IDisposable {
  }
  static string Trim(string value,int limit){value=value??"";return value.Length<=limit?value:value.Substring(0,limit);}
  public static void SendTest(){Marshal.ThrowExceptionForHR(NotificationsSendTest());}
+ public void Reset(){if(disposed)return;if(context!=IntPtr.Zero){NotificationsDestroy(context);context=IntPtr.Zero;}}
  public void Dispose(){if(disposed)return;disposed=true;images.Dispose();if(context!=IntPtr.Zero){NotificationsDestroy(context);context=IntPtr.Zero;}}
  sealed class NativeSnapshot {public List<NativeNotice> Notifications {get;set;}public Dictionary<string,string> Icons {get;set;}public List<string> IconKeys {get;set;}}
  sealed class NativeNotice {public uint Id {get;set;}public string AppId {get;set;}public string App {get;set;}public string Title {get;set;}public string Body {get;set;}public double Ticks {get;set;}}
