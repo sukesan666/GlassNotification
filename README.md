@@ -4,13 +4,13 @@ Windowsの通知を、すりガラス風のカードで表示するWindows 11向
 
 ## ダウンロードとインストール
 
-配布版は **1.7.0.20 / Windows 11 22H2以降 / x64** です。
+配布版は **[1.7.0.20](https://github.com/sukesan666/GlassNotification/releases/tag/v1.7.0.20) / Windows 11 22H2以降 / x64** です。
 
-- [GlassNotification.OSLink.msix](dist/GlassNotification.OSLink.msix) — アプリ本体と必要なランタイムを含むインストーラー
-- [GlassNotification.OSLink.cer](dist/GlassNotification.OSLink.cer) — 初回インストール用の公開証明書
+- [GlassNotification.OSLink.msix](https://github.com/sukesan666/GlassNotification/releases/download/v1.7.0.20/GlassNotification.OSLink.msix) — アプリ本体と必要なランタイムを含むインストーラー
+- [GlassNotification.OSLink.cer](https://github.com/sukesan666/GlassNotification/releases/download/v1.7.0.20/GlassNotification.OSLink.cer) — 初回インストール用の公開証明書
 - [インストール手順](dist/インストール手順.md) — 証明書の登録、更新、アンインストール
 
-GitHubで各ファイルを開いたら、右上のダウンロードボタン（Download raw file）から保存してください。MSIXとCERは同じフォルダーへ置いてください。MSIXを使う場合、EXEを別途ダウンロードする必要はありません。
+上のリンクからMSIXとCERをダウンロードし、同じフォルダーへ置いてください。MSIXを使う場合、EXEを別途ダウンロードする必要はありません。
 
 ## 主な機能
 
