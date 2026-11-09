@@ -49,3 +49,57 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\outputs\GlassNotification\
 | `outputs/GlassNotification/licenses/` | 同梱するWindows App SDKのライセンス |
 
 個人設定・通知の記録・署名の秘密鍵・ビルドキャッシュは収録していません。第三者コンポーネントのライセンスは `licenses/` を参照してください。本アプリ本体の利用許諾は、このリポジトリではまだ定義していません。
+
+---
+
+# GlassNotification (English)
+
+GlassNotification is a Windows 11 app that displays Windows notifications as frosted-glass-style cards. It receives notifications from apps such as Chrome and lets you customize the cards' colors, images, position, and notification sounds.
+
+## Download and Installation
+
+The current release is **[1.7.0.20](https://github.com/sukesan666/GlassNotification/releases/tag/v1.7.0.20) / Windows 11 version 22H2 or later / x64**.
+
+- [GlassNotification.OSLink.msix](https://github.com/sukesan666/GlassNotification/releases/download/v1.7.0.20/GlassNotification.OSLink.msix) — Installer containing the app and required runtimes
+- [GlassNotification.OSLink.cer](https://github.com/sukesan666/GlassNotification/releases/download/v1.7.0.20/GlassNotification.OSLink.cer) — Public certificate required for the initial installation
+- [Installation instructions (Japanese)](dist/インストール手順.md) — Certificate setup, updates, and uninstallation
+
+Download the MSIX and CER files from the links above and place them in the same folder. If you use the MSIX, you do not need to download the EXE separately.
+
+## Features
+
+- Integration with Windows notifications, per-app display settings, and notification history
+- Acrylic, Mica, and opaque display modes, with low, standard, and high Acrylic intensity
+- Customizable card and text colors, fonts, sizes, display duration, monitor, and position
+- Images are selected in this order: notification image, sender icon, then app icon. Image size and left/right placement can be adjusted.
+- Displays up to three notifications at once
+- Click a notification card to invoke actions from the original notification
+- Slide animations, notification sounds, minimization to the notification area, and automatic startup
+- Light and dark themes, and Japanese and English language options in the settings UI
+- Settings mode shows a pinned preview and lets you adjust numeric settings with sliders. In normal mode, the app receives notifications as usual.
+
+See the [user guide (Japanese)](docs/使い方.md) for usage instructions and limitations.
+
+## Development and Build
+
+The source code is in [outputs/GlassNotification](outputs/GlassNotification). Building requires Visual Studio C++ development tools, the Windows SDK, and .NET Framework 4.8.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\outputs\GlassNotification\build.ps1 -Test All
+```
+
+Dependencies are obtained from the official NuGet source, and their pinned versions and SHA-256 hashes are verified. The build produces an EXE, a companion EXE, and a signed MSIX. See the [development and distribution guide (Japanese)](docs/開発・配布.md) for details.
+
+## Repository Structure
+
+| Path | Contents |
+| --- | --- |
+| `dist/` | MSIX package, public certificate, and installation instructions |
+| `docs/` | User, development, and distribution guides |
+| `outputs/GlassNotification/src/` | C# / WPF source code |
+| `outputs/GlassNotification/native/` | C++ rendering, Windows notification integration, and build scripts |
+| `outputs/GlassNotification/identity/` | Package definition and signing process |
+| `outputs/GlassNotification/tests/` | Automated tests and verification code |
+| `outputs/GlassNotification/licenses/` | Licenses for the bundled Windows App SDK |
+
+Personal settings, notification records, private signing keys, and build caches are not included. See `licenses/` for the licenses of third-party components. The license for the app itself has not yet been defined in this repository.
